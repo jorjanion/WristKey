@@ -1,0 +1,17 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE & OS
+.vscode/
+.idea/
+*.suo
+*.user
+Thumbs.db
+desktop.ini
+
+# Environment / Local Secrets
+.env
+*.local
+credentials.json
