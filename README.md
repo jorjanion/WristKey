@@ -89,21 +89,37 @@ Shows an animated visual signal meter with estimated distance in meters to help 
 RSSI: -58.2 dBm [████████████░░░░░░░░] | Dist:  ~1.2m | State: NEAR (Unlock Range)
 ```
 
-### 5. Enable Auto-Lock
+### 5. Inspect Windows Registry for Paired Watch IRKs
+
+```powershell
+cargo run -p wristkey-cli -- --list-keys
+```
+
+Queries `HKLM\SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Keys` to dump paired Bluetooth LE Identity Resolving Keys (requires Administrator terminal or SYSTEM privileges).
+
+### 6. Live Telemetry Inspector
+
+```powershell
+cargo run -p wristkey-cli -- --telemetry
+```
+
+Streams real-time decoded Apple Continuity bitfields: Action Code, On-Wrist flag, Passcode Locked state, Auto-Unlock capability, Wi-Fi status, and Auth Tags.
+
+### 7. Enable Auto-Lock
 
 ```powershell
 # Auto-lock with custom threshold:
 cargo run -p wristkey-cli -- --auto-lock --lock-threshold -82
 ```
 
-When your Apple Watch drops below `-82 dBm` (or signal is lost for > 5 seconds), Windows calls `LockWorkStation()` to lock your PC automatically.
+When your Apple Watch drops below `-82 dBm` (or signal is lost for > 5 seconds, or the watch is removed from your wrist), Windows calls `LockWorkStation()` to lock your PC automatically.
 
 ---
 
 ## Roadmap
 
 - [x] **Fase 1:** BLE WinRT core scanner, Apple Continuity parser, RSSI EMA filter, auto-lock mechanism, and CLI.
-- [ ] **Fase 2:** Automated IRK extraction from Windows Registry (`HKLM\...\BTHPORT\Parameters\Keys`) and on-wrist state enforcement.
+- [x] **Fase 2:** Automated IRK extraction from Windows Registry (`HKLM\...\BTHPORT\Parameters\Keys`), on-wrist presence manager, and Apple Continuity telemetry.
 - [ ] **Fase 3:** Secure unlock via Windows Credential Provider V2 and DPAPI credential vault.
 - [ ] **Fase 4:** Fluent 2 Setup Wizard (Tauri v2) with visual radar calibrator.
 
