@@ -147,6 +147,10 @@ function goToStep(step) {
 
     if (targetStep) targetStep.classList.add("active");
     if (targetNav) targetNav.classList.add("active");
+
+    if (step === 2) {
+        checkAdminOnStep2();
+    }
 }
 
 // Scanner & Discovery
@@ -159,7 +163,7 @@ function initScannerControls() {
         if (isScanning) {
             btnToggle.textContent = "Buscando...";
             btnToggle.classList.replace("btn-secondary", "btn-primary");
-            scanStatusText.textContent = "Escuchando emisiones Bluetooth de dispositivos Apple";
+            scanStatusText.textContent = "Escuchando emisiones Bluetooth de Apple Watches";
             document.querySelector(".radar-sweep").style.display = "block";
         } else {
             btnToggle.textContent = "Reanudar búsqueda";
@@ -200,21 +204,33 @@ function renderDiscoveredDevices(devices) {
         return;
     }
 
-    list.innerHTML = "";
+    const empty = list.querySelector(".empty-state");
+    if (empty) empty.remove();
 
     devices.forEach((dev, idx) => {
-        const item = document.createElement("div");
+        const signal = getHumanSignal(dev.rssi);
+        const isClosest = idx === 0 && dev.rssi >= -65;
+        let item = list.querySelector(`.device-item[data-mac="${dev.mac}"]`);
+
+        if (!item) {
+            item = document.createElement("div");
+            item.setAttribute("data-mac", dev.mac);
+            item.addEventListener("click", () => {
+                document.querySelectorAll(".device-item").forEach(el => el.classList.remove("selected"));
+                item.classList.add("selected");
+                selectedMac = dev.mac;
+                currentRssi = dev.rssi;
+            });
+            list.appendChild(item);
+        }
+
         const isSelected = selectedMac === dev.mac || (!selectedMac && idx === 0);
         if (isSelected && !selectedMac) {
             selectedMac = dev.mac;
             currentRssi = dev.rssi;
         }
 
-        const signal = getHumanSignal(dev.rssi);
-        const isClosest = idx === 0 && dev.rssi >= -65;
-
         item.className = `device-item ${isSelected ? "selected" : ""} ${isClosest ? "is-closest" : ""}`;
-
         item.innerHTML = `
             <div>
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px;">
@@ -230,40 +246,75 @@ function renderDiscoveredDevices(devices) {
                 <span class="signal-dbm-pill">${signal.quality} · ${dev.rssi} dBm</span>
             </div>
         `;
-
-        item.addEventListener("click", () => {
-            document.querySelectorAll(".device-item").forEach(el => el.classList.remove("selected"));
-            item.classList.add("selected");
-            selectedMac = dev.mac;
-            currentRssi = dev.rssi;
-        });
-
-        list.appendChild(item);
     });
 }
 
-// Step 2: IRK Pairing
+// Step 2: IRK Pairing & Admin Elevation
 const btnImportReg = document.getElementById("btn-import-registry");
 const regResults = document.getElementById("registry-results");
 const inputIrk = document.getElementById("input-irk");
 const btnVerifyIrk = document.getElementById("btn-verify-irk");
 const irkFeedback = document.getElementById("irk-verification-feedback");
 
+async function checkAdminOnStep2() {
+    try {
+        const isAdmin = await invoke("is_running_as_admin");
+        if (!isAdmin) {
+            showUacElevationCard();
+            return false;
+        }
+    } catch (_) {}
+    return true;
+}
+
+function showUacElevationCard() {
+    if (!regResults) return;
+    regResults.innerHTML = `
+        <div style="background: rgba(96, 205, 255, 0.08); border: 1px solid rgba(96, 205, 255, 0.35); padding: 16px; border-radius: 8px; margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <span style="font-size: 28px;">🛡️</span>
+                <div>
+                    <strong style="color: var(--text-primary); font-size: 13.5px;">Permisos de Administrador requeridos</strong>
+                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
+                        Windows requiere permisos de administrador para leer las claves de emparejamiento Bluetooth (BTHPORT).
+                    </div>
+                </div>
+            </div>
+            <button id="btn-request-uac" class="btn btn-primary" style="white-space: nowrap; padding: 8px 16px;">
+                🛡️ Conceder permisos UAC
+            </button>
+        </div>
+    `;
+
+    const btnUac = document.getElementById("btn-request-uac");
+    if (btnUac) {
+        btnUac.addEventListener("click", async () => {
+            btnUac.textContent = "Abriendo cuadro UAC...";
+            try {
+                await invoke("relaunch_as_admin");
+            } catch (err) {
+                alert(err);
+                btnUac.textContent = "🛡️ Conceder permisos UAC";
+            }
+        });
+    }
+}
+
 if (btnImportReg) {
     btnImportReg.addEventListener("click", async () => {
         btnImportReg.textContent = "Consultando registro (BTHPORT)...";
         try {
+            const isAdmin = await invoke("is_running_as_admin");
+            if (!isAdmin) {
+                showUacElevationCard();
+                btnImportReg.textContent = "⚡ Inspeccionar claves emparejadas";
+                return;
+            }
+
             const keys = await invoke("query_registry_keys");
             displayRegistryKeys(keys);
         } catch (err) {
-            regResults.innerHTML = `
-                <div style="background: rgba(255, 75, 75, 0.1); border: 1px solid rgba(255, 75, 75, 0.3); padding: 12px; border-radius: 6px; margin-top: 10px;">
-                    <strong style="color: var(--danger); font-size: 12.5px;">Acceso restringido al registro</strong>
-                    <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px;">
-                        Windows requiere permisos de Administrador para leer claves Bluetooth emparejadas. Ejecuta WristKey como Administrador o introduce la clave IRK manualmente abajo.
-                    </div>
-                </div>
-            `;
+            showUacElevationCard();
         } finally {
             btnImportReg.textContent = "⚡ Inspeccionar claves emparejadas";
         }

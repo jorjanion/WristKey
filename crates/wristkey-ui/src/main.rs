@@ -6,7 +6,7 @@ use std::time::Instant;
 use wristkey_core::crypto::IrkResolver;
 use wristkey_core::dpapi::{CredentialVault, UserCredentials};
 use wristkey_core::lock::lock_workstation;
-use wristkey_core::registry::{read_paired_bluetooth_keys, PairedBluetoothKey};
+use wristkey_core::registry::{read_paired_bluetooth_keys, PairedBluetoothKey, RegistryError};
 use wristkey_core::scanner::BleScanner;
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -43,8 +43,8 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
     let mut results = Vec::new();
 
     if let Ok(mut lock) = DEVICES.lock() {
-        // Retain only devices seen within the last 15 seconds
-        lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 15);
+        // Retain only devices seen within the last 12 seconds
+        lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 12);
 
         for entry in lock.values() {
             let mut dev = entry.device.clone();
@@ -64,6 +64,37 @@ fn get_device_rssi(mac: String) -> Option<i16> {
         lock.get(&mac).map(|e| e.device.rssi)
     } else {
         None
+    }
+}
+
+#[tauri::command]
+fn is_running_as_admin() -> bool {
+    match read_paired_bluetooth_keys() {
+        Ok(_) => true,
+        Err(RegistryError::AccessDenied) => false,
+        Err(_) => true,
+    }
+}
+
+#[tauri::command]
+fn relaunch_as_admin() -> Result<(), String> {
+    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_str = current_exe.to_string_lossy().to_string();
+
+    let status = std::process::Command::new("powershell.exe")
+        .args(&[
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &format!("Start-Process -FilePath '{}' -Verb RunAs", exe_str),
+        ])
+        .status()
+        .map_err(|e| format!("Error launching UAC prompt: {}", e))?;
+
+    if status.success() {
+        std::process::exit(0);
+    } else {
+        Err("El usuario canceló la solicitud de permisos UAC".to_string())
     }
 }
 
@@ -187,6 +218,12 @@ fn start_background_scanner() {
                 log::info!("Live WinRT BLE scanner started for UI");
                 while let Ok(event) = rx.recv() {
                     if let Some(frame) = event.apple_frame {
+                        // STRICT FILTER: Only accept Apple Watch candidates (Apple Continuity 0x10 Nearby Info)
+                        // Discard AirTags (0x12), iBeacons (0x01), and non-watch noise completely
+                        if frame.message_type != 0x10 {
+                            continue;
+                        }
+
                         let mac_str = format!(
                             "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
                             (event.mac >> 40) & 0xFF,
@@ -197,32 +234,35 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
-                        let is_watch_candidate = frame.message_type == 0x10 || frame.is_on_wrist;
-
                         let name = if frame.is_on_wrist_and_unlocked {
                             "Apple Watch (En muñeca y desbloqueado)".to_string()
                         } else if frame.is_on_wrist {
                             "Apple Watch (En muñeca, bloqueado)".to_string()
-                        } else if frame.message_type == 0x10 {
-                            "Apple Watch / iPhone (Nearby Info 0x10)".to_string()
-                        } else if frame.message_type == 0x12 {
-                            "Dispositivo Apple (Find My / AirTag)".to_string()
+                        } else if event.rssi >= -60 {
+                            "Apple Watch (Al lado del PC)".to_string()
                         } else {
-                            format!("Dispositivo Apple ({})", frame.message_type_name)
-                        };
-
-                        let dto = DiscoveredDeviceDto {
-                            mac: mac_str.clone(),
-                            name,
-                            rssi: event.rssi,
-                            on_wrist: frame.is_on_wrist,
-                            is_unlocked: !frame.is_locked,
-                            frame_type: frame.message_type_name,
-                            is_watch_candidate,
-                            last_seen_ms_ago: 0,
+                            "Apple Watch (En proximidad)".to_string()
                         };
 
                         if let Ok(mut lock) = DEVICES.lock() {
+                            let smoothed_rssi = if let Some(existing) = lock.get(&mac_str) {
+                                // Heavy EMA smoothing (75% existing + 25% new) to eliminate jitter
+                                ((existing.device.rssi as f32 * 0.75) + (event.rssi as f32 * 0.25)).round() as i16
+                            } else {
+                                event.rssi
+                            };
+
+                            let dto = DiscoveredDeviceDto {
+                                mac: mac_str.clone(),
+                                name,
+                                rssi: smoothed_rssi,
+                                on_wrist: frame.is_on_wrist,
+                                is_unlocked: !frame.is_locked,
+                                frame_type: "Nearby Info (0x10)".to_string(),
+                                is_watch_candidate: true,
+                                last_seen_ms_ago: 0,
+                            };
+
                             lock.insert(
                                 mac_str,
                                 DeviceEntry {
@@ -249,6 +289,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_discovered_devices,
             get_device_rssi,
+            is_running_as_admin,
+            relaunch_as_admin,
             check_for_updates,
             download_and_install_update,
             query_registry_keys,
