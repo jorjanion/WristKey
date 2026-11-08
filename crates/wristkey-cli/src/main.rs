@@ -4,7 +4,8 @@ use std::io::{stdout, Write};
 use std::thread::sleep;
 use std::time::Duration;
 use wristkey_core::{
-    format_mac, lock_workstation, BleScanner, IrkResolver, ProximityState, RssiTracker,
+    format_mac, is_elevated, lock_workstation, read_paired_bluetooth_keys, BleScanner,
+    IrkResolver, ProximityState, RssiTracker, WatchPresenceManager, WatchSecurityStatus,
     WristKeyConfig, WristKeyEngine,
 };
 
@@ -12,8 +13,8 @@ use wristkey_core::{
 #[command(
     name = "wristkey-cli",
     author = "Jorge",
-    version = "0.1.0",
-    about = "WristKey CLI: Proximity BLE scanner, distance calibrator, and auto-lock tester"
+    version = "0.2.0",
+    about = "WristKey CLI: Apple Watch proximity BLE scanner, IRK pairing, and presence manager"
 )]
 struct Args {
     /// Scan for all nearby Apple BLE devices in active mode
@@ -24,7 +25,15 @@ struct Args {
     #[arg(long)]
     irk: Option<String>,
 
-    /// Automatically lock PC when device moves out of range or signal is lost
+    /// Inspect Windows Registry (BTHPORT Keys) for paired Bluetooth IRKs (requires Administrator/SYSTEM)
+    #[arg(long)]
+    list_keys: bool,
+
+    /// Stream detailed Apple Continuity telemetry bitfields in real-time
+    #[arg(long)]
+    telemetry: bool,
+
+    /// Automatically lock PC when device moves out of range or is removed from wrist
     #[arg(long)]
     auto_lock: bool,
 
@@ -69,6 +78,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if args.list_keys {
+        return run_list_keys();
+    }
+
+    if args.telemetry {
+        return run_telemetry(&args);
+    }
+
     if args.calibrate {
         return run_calibration(&args);
     }
@@ -80,8 +97,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn print_banner() {
     println!("{}", "==========================================================".cyan());
     println!("{}", "       WristKey - Apple Watch Proximity Unlock/Lock       ".cyan().bold());
-    println!("{}", "              Windows 11 / 10 BLE Engine                  ".cyan());
+    println!("{}", "              Windows 11 / 10 BLE Engine (Phase 2)        ".cyan());
     println!("{}", "==========================================================".cyan());
+}
+
+fn run_list_keys() -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n{}", "Querying Windows Registry for paired Bluetooth keys...".bold());
+    let elevated = is_elevated();
+    println!(
+        "Process integrity: {}",
+        if elevated {
+            "Elevated (Administrator)".green().bold()
+        } else {
+            "Standard User (Non-Elevated)".yellow()
+        }
+    );
+
+    match read_paired_bluetooth_keys() {
+        Ok(keys) => {
+            if keys.is_empty() {
+                println!("{}", "No paired Bluetooth keys found in BTHPORT registry.".yellow());
+            } else {
+                println!("\nFound {} paired device key(s):", keys.len());
+                for (idx, key) in keys.iter().enumerate() {
+                    println!("\n[{}] Device MAC: {}", idx + 1, key.device_mac.cyan().bold());
+                    println!("    Host Adapter: {}", key.host_adapter_mac);
+                    if let Some(ref irk_hex) = key.irk_hex {
+                        println!("    IRK:          {}", irk_hex.green().bold());
+                    } else {
+                        println!("    IRK:          (not a BLE privacy device or no IRK stored)");
+                    }
+                    if key.ltk.is_some() {
+                        println!("    LTK:          [present]");
+                    }
+                    if key.link_key.is_some() {
+                        println!("    Link Key:     [present]");
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("\n{} {}", "Registry query notice:".yellow().bold(), e);
+            if !elevated {
+                println!(
+                    "\nTip: To dump paired IRKs from Windows Registry directly, run this command from an elevated (Administrator) terminal: \n  {}",
+                    "wristkey-cli --list-keys".cyan().bold()
+                );
+                println!("Alternatively, you can provide your IRK manually via the --irk <HEX> flag or in config/wristkey.default.toml.");
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn run_crypto_verification() -> Result<(), Box<dyn std::error::Error>> {
@@ -110,6 +177,64 @@ fn run_crypto_verification() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn run_telemetry(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n{}", "--- Live Apple Continuity Telemetry Inspector ---".magenta().bold());
+    println!("Decoding Nearby Info (0x10) flags in real time (On-Wrist, Locked, Wi-Fi, Auto-Unlock)...");
+
+    let resolver = if let Some(ref irk_hex) = args.irk {
+        println!("Filtering exclusively for IRK: {}", irk_hex.yellow());
+        Some(IrkResolver::from_hex(irk_hex)?)
+    } else {
+        println!("{}", "Inspecting all Apple BLE advertisement packets...".yellow());
+        None
+    };
+
+    let mut scanner = BleScanner::new();
+    let rx = scanner.start()?;
+
+    loop {
+        while let Ok(event) = rx.try_recv() {
+            if let Some(ref r) = resolver {
+                if !r.matches_rpa(event.mac) {
+                    continue;
+                }
+            }
+
+            if let Some(ref frame) = event.apple_frame {
+                let mac_str = format_mac(event.mac);
+                println!("\n[Packet from {} | RSSI: {} dBm]", mac_str.cyan(), event.rssi);
+                println!("  Protocol:     {}", frame.message_type_name.bold());
+                if let Some(code) = frame.action_code {
+                    println!("  Action:       0x{:02X} ({})", code, frame.action_name.as_deref().unwrap_or(""));
+                }
+                println!(
+                    "  On Wrist:     {}",
+                    if frame.is_on_wrist { "YES".green().bold() } else { "NO".red() }
+                );
+                println!(
+                    "  Passcode:     {}",
+                    if frame.is_locked { "LOCKED".red().bold() } else { "UNLOCKED".green().bold() }
+                );
+                println!(
+                    "  Eligible:     {}",
+                    if frame.is_on_wrist_and_unlocked {
+                        "AUTHORIZED (On-Wrist & Unlocked)".green().bold()
+                    } else {
+                        "UNAUTHORIZED".red()
+                    }
+                );
+                println!("  Auto-Unlock:  {}", if frame.auto_unlock_capable { "Yes" } else { "No" });
+                println!("  Wi-Fi Active: {}", if frame.wifi_on { "Yes" } else { "No" });
+                println!("  iCloud Prim:  {}", if frame.is_primary_icloud { "Yes" } else { "No" });
+                if let Some(ref tag) = frame.auth_tag {
+                    println!("  Auth Tag:     {:02X?}", tag);
+                }
+            }
+        }
+        sleep(Duration::from_millis(150));
+    }
+}
+
 fn run_scan(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n{}", "Initializing BLE Scanner (Active Mode)...".bold());
     if let Some(ref irk) = args.irk {
@@ -119,7 +244,7 @@ fn run_scan(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if args.auto_lock {
-        println!("{}", "AUTO-LOCK ENABLED: System will lock when signal drops below threshold!".red().bold());
+        println!("{}", "AUTO-LOCK ENABLED: System will lock when device moves out of range or is removed from wrist!".red().bold());
     }
 
     let config = WristKeyConfig {
@@ -127,7 +252,7 @@ fn run_scan(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         lock_threshold_dbm: args.lock_threshold,
         unlock_threshold_dbm: args.unlock_threshold,
         auto_lock_enabled: args.auto_lock,
-        require_on_wrist: false, // in general scan, report status without discarding
+        require_on_wrist: false,
     };
 
     let mut engine = WristKeyEngine::new(config)?;
@@ -138,7 +263,6 @@ fn run_scan(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", "-".repeat(74));
 
     loop {
-        // Drain events
         while let Ok(event) = rx.try_recv() {
             let matched = engine.handle_event(&event);
 
@@ -152,6 +276,8 @@ fn run_scan(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             let (type_name, status_str) = if let Some(ref frame) = event.apple_frame {
                 let status = if frame.is_on_wrist_and_unlocked {
                     "YES (On-Wrist & Unlocked)".green().bold().to_string()
+                } else if frame.is_locked {
+                    "NO (Watch is Locked)".red().to_string()
                 } else if let Some(ref act) = frame.action_name {
                     format!("No ({})", act).yellow().to_string()
                 } else {
@@ -181,52 +307,83 @@ fn run_calibration(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     println!("Sit at your desk or walk away to observe the signal meter.");
     println!("Lock Threshold: {} dBm | Unlock Threshold: {} dBm\n", args.lock_threshold, args.unlock_threshold);
 
-    let mut tracker = RssiTracker::new(args.lock_threshold, args.unlock_threshold);
     let mut scanner = BleScanner::new();
     let rx = scanner.start()?;
 
-    let resolver = if let Some(ref irk_hex) = args.irk {
-        Some(IrkResolver::from_hex(irk_hex)?)
+    let mut presence_mgr = if let Some(ref irk_hex) = args.irk {
+        let resolver = IrkResolver::from_hex(irk_hex)?;
+        Some(WatchPresenceManager::new(
+            resolver,
+            args.lock_threshold,
+            args.unlock_threshold,
+        ))
     } else {
         None
     };
 
+    let mut fallback_tracker = RssiTracker::new(args.lock_threshold, args.unlock_threshold);
+
     loop {
         while let Ok(event) = rx.try_recv() {
-            let matches = if let Some(ref r) = resolver {
-                r.matches_rpa(event.mac)
+            if let Some(ref mut mgr) = presence_mgr {
+                if mgr.feed_advertisement(event.mac, event.rssi, event.apple_frame.clone()) {
+                    let smoothed = mgr.rssi_tracker.smoothed_rssi.unwrap_or(event.rssi as f64);
+                    let dist_str = mgr
+                        .rssi_tracker
+                        .estimated_distance_meters()
+                        .map(|d| format!("~{:.1}m", d))
+                        .unwrap_or_else(|| "?m".to_string());
+
+                    let bar = render_meter(smoothed, -100.0, -40.0, 20);
+
+                    let status_str = match mgr.security_status() {
+                        WatchSecurityStatus::AuthorizedInProximity => "NEAR (Ready to Unlock)".green().bold(),
+                        WatchSecurityStatus::AuthorizedFar => "FAR (Lock Zone)".red().bold(),
+                        WatchSecurityStatus::DetectedUnauthorized { reason } => {
+                            format!("UNAUTHORIZED ({})", reason).red()
+                        }
+                        WatchSecurityStatus::NotDetected => "SEARCHING".yellow(),
+                    };
+
+                    print!(
+                        "\rRSSI: {:>5.1} dBm {} | Dist: {:>5} | {}",
+                        smoothed, bar, dist_str, status_str
+                    );
+                    let _ = stdout().flush();
+                }
             } else {
-                // Focus on Apple Nearby Info frames in calibration
-                event.apple_frame.as_ref().map(|f| f.message_type == 0x10).unwrap_or(false)
-            };
+                // Discovery calibration without specific IRK
+                if event.apple_frame.is_some() {
+                    fallback_tracker.update(event.rssi);
+                    let smoothed = fallback_tracker.smoothed_rssi.unwrap_or(event.rssi as f64);
+                    let dist_str = fallback_tracker
+                        .estimated_distance_meters()
+                        .map(|d| format!("~{:.1}m", d))
+                        .unwrap_or_else(|| "?m".to_string());
 
-            if matches {
-                tracker.update(event.rssi);
+                    let bar = render_meter(smoothed, -100.0, -40.0, 20);
+                    let state_str = match fallback_tracker.state {
+                        ProximityState::Near => "NEAR (In Proximity)".green().bold(),
+                        ProximityState::Far => "FAR (Out of Range)".red().bold(),
+                        ProximityState::Lost => "LOST (Timeout)".red(),
+                        ProximityState::Unknown => "ACQUIRING".yellow(),
+                    };
 
-                let smoothed = tracker.smoothed_rssi.unwrap_or(event.rssi as f64);
-                let dist_str = tracker
-                    .estimated_distance_meters()
-                    .map(|d| format!("~{:.1}m", d))
-                    .unwrap_or_else(|| "?m".to_string());
-
-                let bar = render_meter(smoothed, -100.0, -40.0, 20);
-
-                let state_str = match tracker.state {
-                    ProximityState::Near => "NEAR (Unlock Range)".green().bold(),
-                    ProximityState::Far => "FAR (Lock Range)".red().bold(),
-                    ProximityState::Lost => "LOST (Timeout)".red(),
-                    ProximityState::Unknown => "ACQUIRING".yellow(),
-                };
-
-                print!(
-                    "\rRSSI: {:>5.1} dBm {} | Dist: {:>5} | State: {:<20}",
-                    smoothed, bar, dist_str, state_str
-                );
-                let _ = stdout().flush();
+                    print!(
+                        "\rRSSI: {:>5.1} dBm {} | Dist: {:>5} | State: {:<20}",
+                        smoothed, bar, dist_str, state_str
+                    );
+                    let _ = stdout().flush();
+                }
             }
         }
 
-        tracker.tick();
+        if let Some(ref mut mgr) = presence_mgr {
+            mgr.tick();
+        } else {
+            fallback_tracker.tick();
+        }
+
         sleep(Duration::from_millis(100));
     }
 }
