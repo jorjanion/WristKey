@@ -126,6 +126,20 @@ cargo run -p wristkey-cli -- --auto-lock --auto-unlock --lock-threshold -82 --un
 - **Away:** When you walk away (or remove the watch from your wrist), Windows locks immediately.
 - **Approach:** When you return to your desk with your unlocked Apple Watch, WristKey wakes the lock screen and authorizes the Credential Provider via secure Named Pipe IPC (`\\.\pipe\WristKeyUnlockPipe`) to unlock your desktop seamlessly.
 
+### 9. Launch Windows 11 Fluent Setup Wizard & Radar (GUI)
+
+```powershell
+# Launch the interactive Fluent UI (Tauri v2 + WebView2)
+cargo run -p wristkey-ui
+```
+
+Features a step-by-step Setup Wizard with:
+- **Radar Scanner:** Concentric animated BLE discovery for nearby Apple Watches.
+- **Auto IRK Import:** One-click extraction from Windows Registry (`BTHPORT`).
+- **Live Signal Calibrator:** Interactive sliders with real-time dBm meter to dial in desk vs room distances.
+- **DPAPI Vault:** Seamless credential configuration.
+- **Active Dashboard:** Real-time monitoring of signal, distance, on-wrist verification, and policies.
+
 ---
 
 ## Roadmap
@@ -133,7 +147,7 @@ cargo run -p wristkey-cli -- --auto-lock --auto-unlock --lock-threshold -82 --un
 - [x] **Fase 1:** BLE WinRT core scanner, Apple Continuity parser, RSSI EMA filter, auto-lock mechanism, and CLI.
 - [x] **Fase 2:** Automated IRK extraction from Windows Registry (`HKLM\...\BTHPORT\Parameters\Keys`), on-wrist presence manager, and Apple Continuity telemetry.
 - [x] **Fase 3:** Secure unlock via Windows Credential Provider V2, Named Pipe IPC, and DPAPI credential vault.
-- [ ] **Fase 4:** Fluent 2 Setup Wizard (Tauri v2) with visual radar calibrator.
+- [x] **Fase 4:** Fluent 2 Setup Wizard (Tauri v2) with visual radar calibrator and distance slider.
 
 ---
 
