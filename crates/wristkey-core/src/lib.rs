@@ -1,12 +1,16 @@
 pub mod continuity;
 pub mod crypto;
+pub mod device;
 pub mod lock;
+pub mod registry;
 pub mod rssi;
 pub mod scanner;
 
 pub use continuity::{AppleContinuityFrame, APPLE_COMPANY_ID};
 pub use crypto::{format_mac, CryptoError, IrkResolver};
+pub use device::{WatchPresenceManager, WatchSecurityStatus};
 pub use lock::{lock_workstation, LockError};
+pub use registry::{is_elevated, read_paired_bluetooth_keys, PairedBluetoothKey, RegistryError};
 pub use rssi::{ProximityState, RssiTracker};
 pub use scanner::{BleAdvertisementEvent, BleScanner, ScannerError};
 
@@ -43,16 +47,24 @@ impl Default for WristKeyConfig {
 /// The core orchestration engine for WristKey.
 pub struct WristKeyEngine {
     pub config: WristKeyConfig,
-    pub irk_resolver: Option<IrkResolver>,
+    pub presence_manager: Option<WatchPresenceManager>,
     pub rssi_tracker: RssiTracker,
     pub is_locked: bool,
 }
 
 impl WristKeyEngine {
     pub fn new(config: WristKeyConfig) -> Result<Self, CryptoError> {
-        let irk_resolver = match &config.target_irk_hex {
-            Some(hex) => Some(IrkResolver::from_hex(hex)?),
-            None => None,
+        let presence_manager = if let Some(ref hex) = config.target_irk_hex {
+            let resolver = IrkResolver::from_hex(hex)?;
+            let mut mgr = WatchPresenceManager::new(
+                resolver,
+                config.lock_threshold_dbm,
+                config.unlock_threshold_dbm,
+            );
+            mgr.require_on_wrist = config.require_on_wrist;
+            Some(mgr)
+        } else {
+            None
         };
 
         let rssi_tracker =
@@ -60,68 +72,95 @@ impl WristKeyEngine {
 
         Ok(Self {
             config,
-            irk_resolver,
+            presence_manager,
             rssi_tracker,
             is_locked: false,
         })
     }
 
     /// Evaluates an incoming BLE event.
-    /// Returns true if this packet matched the target watch and was processed.
+    /// Returns true if this packet matched the target watch (or was an Apple packet in scan mode).
     pub fn handle_event(&mut self, event: &BleAdvertisementEvent) -> bool {
-        // If an IRK is configured, check if this packet matches the RPA
-        if let Some(ref resolver) = self.irk_resolver {
-            if !resolver.matches_rpa(event.mac) {
+        if let Some(ref mut mgr) = self.presence_manager {
+            let matched = mgr.feed_advertisement(event.mac, event.rssi, event.apple_frame.clone());
+            if !matched {
                 return false;
             }
+
+            // Sync outer rssi_tracker with manager
+            if let Some(rssi) = mgr.rssi_tracker.smoothed_rssi {
+                self.rssi_tracker.smoothed_rssi = Some(rssi);
+            }
+            self.rssi_tracker.state = mgr.rssi_tracker.state;
+
+            // Check auto-lock condition
+            if self.config.auto_lock_enabled && !self.is_locked && mgr.should_lock() {
+                info!("Security policy triggered workstation lock.");
+                if lock_workstation().is_ok() {
+                    self.is_locked = true;
+                }
+            }
+
+            if self.is_locked && mgr.can_unlock() {
+                info!("Authorized Apple Watch in close proximity. Lock state cleared.");
+                self.is_locked = false;
+            }
+
+            true
         } else {
-            // In scan/discovery mode, only accept packets with Apple manufacturer data
+            // General discovery mode (no specific IRK configured yet)
             if event.apple_frame.is_none() {
                 return false;
             }
-        }
 
-        // Check on-wrist requirement if enabled
-        if self.config.require_on_wrist {
-            if let Some(ref frame) = event.apple_frame {
-                if frame.message_type == continuity::TYPE_NEARBY_INFO && !frame.is_on_wrist_and_unlocked {
-                    warn!(
-                        "Packet matched watch {:012X}, but watch is NOT on wrist or locked (action {:?})",
-                        event.mac, frame.action_code
-                    );
-                    return false;
+            if self.config.require_on_wrist {
+                if let Some(ref frame) = event.apple_frame {
+                    if frame.message_type == continuity::TYPE_NEARBY_INFO
+                        && !frame.is_on_wrist_and_unlocked
+                    {
+                        warn!(
+                            "Apple packet from {:012X}, but not on wrist / locked (action {:?})",
+                            event.mac, frame.action_code
+                        );
+                        return false;
+                    }
                 }
             }
-        }
 
-        // Update RSSI smoothing and hysteresis
-        self.rssi_tracker.update(event.rssi);
+            self.rssi_tracker.update(event.rssi);
 
-        // Check auto-lock condition
-        if self.config.auto_lock_enabled && !self.is_locked && self.rssi_tracker.should_lock() {
-            info!("Proximity state is Far/Lost. Triggering auto-lock!");
-            if lock_workstation().is_ok() {
-                self.is_locked = true;
+            if self.config.auto_lock_enabled && !self.is_locked && self.rssi_tracker.should_lock() {
+                info!("Proximity state is Far/Lost. Triggering auto-lock.");
+                if lock_workstation().is_ok() {
+                    self.is_locked = true;
+                }
             }
-        }
 
-        // Check reset of lock state when back in Near range
-        if self.is_locked && self.rssi_tracker.should_unlock() {
-            info!("Device back in Near proximity. Resetting lock state.");
-            self.is_locked = false;
-        }
+            if self.is_locked && self.rssi_tracker.should_unlock() {
+                self.is_locked = false;
+            }
 
-        true
+            true
+        }
     }
 
     /// Periodic tick to handle timeouts.
     pub fn tick(&mut self) {
-        self.rssi_tracker.tick();
-
-        if self.config.auto_lock_enabled && !self.is_locked && self.rssi_tracker.should_lock() {
-            info!("Signal timeout expired. Triggering auto-lock!");
-            if lock_workstation().is_ok() {
-                self.is_locked = true;
+        if let Some(ref mut mgr) = self.presence_manager {
+            mgr.tick();
+            if self.config.auto_lock_enabled && !self.is_locked && mgr.should_lock() {
+                info!("Device timeout or lock state detected. Locking workstation.");
+                if lock_workstation().is_ok() {
+                    self.is_locked = true;
+                }
+            }
+        } else {
+            self.rssi_tracker.tick();
+            if self.config.auto_lock_enabled && !self.is_locked && self.rssi_tracker.should_lock() {
+                info!("Signal timeout expired. Triggering auto-lock.");
+                if lock_workstation().is_ok() {
+                    self.is_locked = true;
+                }
             }
         }
     }

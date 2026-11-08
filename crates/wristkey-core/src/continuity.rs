@@ -10,7 +10,7 @@ pub const TYPE_HANDOFF: u8 = 0x0C;
 pub const TYPE_NEARBY_INFO: u8 = 0x10;
 pub const TYPE_FIND_MY: u8 = 0x12;
 
-/// Action codes inside Nearby Info (0x10) messages (lower 4 bits of payload[0]).
+/// Action codes inside Nearby Info (0x10) messages (lower 4 bits of payload[2]).
 pub const ACTION_UNKNOWN: u8 = 0x00;
 pub const ACTION_ACTIVITY_DISABLED: u8 = 0x01;
 pub const ACTION_IDLE: u8 = 0x03;
@@ -22,22 +22,42 @@ pub const ACTION_RECENT_INTERACTION: u8 = 0x0B;
 pub const ACTION_DRIVING: u8 = 0x0D;
 pub const ACTION_CALL_ACTIVE: u8 = 0x0E;
 
-/// Decoded representation of an Apple Continuity advertisement payload.
+/// Detailed decoded representation of an Apple Continuity advertisement payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppleContinuityFrame {
+    /// Protocol type code (e.g. 0x10 for Nearby Info).
     pub message_type: u8,
+    /// Human-readable message type name.
     pub message_type_name: String,
+    /// Action code from Nearby Info (lower 4 bits of byte 2).
     pub action_code: Option<u8>,
+    /// Human-readable action description.
     pub action_name: Option<String>,
+    /// True if the watch is detected on the user's wrist.
+    pub is_on_wrist: bool,
+    /// True if the watch is currently locked with a passcode.
+    pub is_locked: bool,
+    /// Strict combined status: On-Wrist AND Passcode Unlocked.
     pub is_on_wrist_and_unlocked: bool,
+    /// Apple Watch Auto Unlock capability enabled (Bit 6/7).
     pub auto_unlock_capable: bool,
+    /// Device Wi-Fi interface status (Bit 2 of status byte).
+    pub wifi_on: bool,
+    /// Device is marked as the primary iCloud account device (Bit 4 of byte 2).
+    pub is_primary_icloud: bool,
+    /// AirDrop receiving enabled (Bit 5 of byte 2).
+    pub airdrop_enabled: bool,
+    /// Message integrity authentication tag if present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_tag: Option<Vec<u8>>,
+    /// Raw manufacturer payload bytes.
     pub raw_payload: Vec<u8>,
 }
 
 impl AppleContinuityFrame {
-    /// Attempts to parse an Apple manufacturer data payload.
+    /// Parses an Apple manufacturer data payload.
     ///
-    /// Expected format in Apple BLE advertising:
+    /// Wire format:
     /// `[Type (1 byte)] [Length (1 byte)] [Data (Length bytes)...]`
     pub fn parse(data: &[u8]) -> Option<Self> {
         if data.is_empty() {
@@ -63,15 +83,17 @@ impl AppleContinuityFrame {
 
         if message_type == TYPE_NEARBY_INFO && data.len() >= 3 {
             // Byte 0: Type (0x10)
-            // Byte 1: Length of remainder (e.g. 0x05)
+            // Byte 1: Length of payload (e.g. 0x05)
             // Byte 2: [Status Flags (upper 4 bits) | Action Code (lower 4 bits)]
-            let action_byte = data[2];
-            let action_code = action_byte & 0x0F;
+            let byte2 = data[2];
+            let is_primary_icloud = (byte2 & 0x10) != 0;
+            let airdrop_enabled = (byte2 & 0x20) != 0;
+            let action_code = byte2 & 0x0F;
 
             let action_name = match action_code {
                 ACTION_UNKNOWN => "Unknown",
                 ACTION_ACTIVITY_DISABLED => "Activity Reporting Disabled",
-                ACTION_IDLE => "Idle User",
+                ACTION_IDLE => "Idle User (Screen Off)",
                 ACTION_AUDIO_PLAYING_LOCKED => "Audio Playing (Screen Locked)",
                 ACTION_SCREEN_ON => "Active User (Screen On)",
                 ACTION_SCREEN_ON_VIDEO => "Video Playing (Screen On)",
@@ -83,23 +105,60 @@ impl AppleContinuityFrame {
             }
             .to_string();
 
-            let is_on_wrist = action_code == ACTION_WATCH_ON_WRIST_UNLOCKED;
-
-            // Byte 3 (if present): Status bits
+            // Default flags if status byte not present
+            let mut is_locked = false;
             let mut auto_unlock = false;
+            let mut wifi_on = false;
+            let mut auth_tag_len = 3usize;
+
             if data.len() >= 4 {
+                // Byte 3: System Status flags (8 bits)
                 let status_flags = data[3];
-                // Bit 6 (0x40) and Bit 7 (0x80) indicate Auto Unlock readiness
+
+                // Bit 1 (0x02): Auth tag length (0 = 3 bytes, 1 = 4 bytes)
+                if (status_flags & 0x02) != 0 {
+                    auth_tag_len = 4;
+                }
+
+                // Bit 2 (0x04): Wi-Fi state
+                wifi_on = (status_flags & 0x04) != 0;
+
+                // Bit 5 (0x20): Apple Watch Lock Status: 1 = Locked, 0 = Unlocked
+                is_locked = (status_flags & 0x20) != 0;
+
+                // Bit 6 (0x40) and Bit 7 (0x80): Auto Unlock capability
                 auto_unlock = (status_flags & 0xC0) != 0;
             }
+
+            // Extract authentication tag if present
+            let auth_tag = if data.len() >= 4 + auth_tag_len {
+                Some(data[4..4 + auth_tag_len].to_vec())
+            } else if data.len() > 4 {
+                Some(data[4..].to_vec())
+            } else {
+                None
+            };
+
+            // An Apple Watch is on-wrist if action code indicates 0x0A, or if active and not locked
+            let is_on_wrist = action_code == ACTION_WATCH_ON_WRIST_UNLOCKED
+                || (auto_unlock && !is_locked);
+
+            let is_on_wrist_and_unlocked = (action_code == ACTION_WATCH_ON_WRIST_UNLOCKED || is_on_wrist)
+                && !is_locked;
 
             Some(Self {
                 message_type,
                 message_type_name: type_name,
                 action_code: Some(action_code),
                 action_name: Some(action_name),
-                is_on_wrist_and_unlocked: is_on_wrist,
+                is_on_wrist,
+                is_locked,
+                is_on_wrist_and_unlocked,
                 auto_unlock_capable: auto_unlock,
+                wifi_on,
+                is_primary_icloud,
+                airdrop_enabled,
+                auth_tag,
                 raw_payload: data.to_vec(),
             })
         } else {
@@ -108,8 +167,14 @@ impl AppleContinuityFrame {
                 message_type_name: type_name,
                 action_code: None,
                 action_name: None,
+                is_on_wrist: false,
+                is_locked: false,
                 is_on_wrist_and_unlocked: false,
                 auto_unlock_capable: false,
+                wifi_on: false,
+                is_primary_icloud: false,
+                airdrop_enabled: false,
+                auth_tag: None,
                 raw_payload: data.to_vec(),
             })
         }
@@ -121,24 +186,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_nearby_info_watch_on_wrist() {
-        // [0x10 (Nearby Info), 0x05 (len), 0x0A (Action: Watch on wrist), 0x44 (Status flags with auto-unlock), 0x11, 0x22, 0x33]
-        let raw = vec![0x10, 0x05, 0x0A, 0x44, 0x11, 0x22, 0x33];
+    fn test_parse_nearby_info_watch_on_wrist_and_unlocked() {
+        // [0x10 (Nearby Info), 0x05 (len), 0x1A (iCloud primary + Action 0x0A: On wrist), 0x44 (Auto-unlock=1, Wi-Fi=1, Lock=0), 0x11, 0x22, 0x33]
+        let raw = vec![0x10, 0x05, 0x1A, 0x44, 0x11, 0x22, 0x33];
         let frame = AppleContinuityFrame::parse(&raw).expect("Must parse");
 
         assert_eq!(frame.message_type, TYPE_NEARBY_INFO);
         assert_eq!(frame.action_code, Some(ACTION_WATCH_ON_WRIST_UNLOCKED));
+        assert!(frame.is_primary_icloud);
+        assert!(frame.wifi_on);
+        assert!(!frame.is_locked);
+        assert!(frame.is_on_wrist);
         assert!(frame.is_on_wrist_and_unlocked);
         assert!(frame.auto_unlock_capable);
-        assert_eq!(frame.action_name.unwrap(), "Watch On Wrist & Unlocked");
+        assert_eq!(frame.auth_tag, Some(vec![0x11, 0x22, 0x33]));
     }
 
     #[test]
-    fn test_parse_nearby_info_idle_screen() {
-        let raw = vec![0x10, 0x05, 0x03, 0x00, 0x00, 0x00, 0x00];
+    fn test_parse_nearby_info_watch_removed_from_wrist_locked() {
+        // Watch removed: Lock bit 5 (0x20) is set, action is idle (0x03)
+        // Status = 0x64 (AutoUnlock=0x40 | Locked=0x20 | WiFi=0x04)
+        let raw = vec![0x10, 0x05, 0x03, 0x64, 0xAA, 0xBB, 0xCC];
         let frame = AppleContinuityFrame::parse(&raw).expect("Must parse");
 
         assert_eq!(frame.action_code, Some(ACTION_IDLE));
+        assert!(frame.is_locked);
         assert!(!frame.is_on_wrist_and_unlocked);
     }
 }
