@@ -1,0 +1,36 @@
+# WristKey Default Configuration
+# Proximity auto-lock and unlock parameters for Windows
+
+[device]
+# 32-character hexadecimal Identity Resolving Key (IRK) of your Apple Watch.
+# If omitted or left empty, WristKey operates in discovery mode.
+# target_irk = "ec0234a357c8ad05341010a60a397d9b"
+target_irk = ""
+
+[proximity]
+# Signal strength in dBm below which the system initiates an auto-lock.
+# Default: -82.0 dBm (approximately 3 to 4 meters depending on environment).
+lock_threshold_dbm = -82.0
+
+# Signal strength in dBm required to trigger an unlock.
+# Default: -62.0 dBm (approximately 1 to 1.5 meters directly in front of the PC).
+unlock_threshold_dbm = -62.0
+
+# Number of seconds without any BLE packet before assuming the device is gone.
+signal_timeout_seconds = 5.0
+
+# Grace period in seconds to prevent accidental locks when moving arms quickly.
+lock_grace_period_seconds = 2.5
+
+# Exponential Moving Average factor (0.1 = very smooth/slower, 0.5 = responsive/noisier).
+ema_alpha = 0.25
+
+[security]
+# Automatically lock the workstation when out of range.
+auto_lock = true
+
+# Require Apple Watch to explicitly report "On Wrist & Unlocked" (Continuity Action 0x0A).
+require_on_wrist = true
+
+# Automatically unlock when within close range (Requires WristKey Credential Provider in Phase 3).
+auto_unlock = false
