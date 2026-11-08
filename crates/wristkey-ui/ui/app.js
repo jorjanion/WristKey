@@ -1,6 +1,15 @@
 // WristKey Fluent UI - Application Logic
 
-const tauriInvoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke || null;
+async function invoke(cmd, args = {}) {
+    if (window.__TAURI__?.core?.invoke) {
+        return await window.__TAURI__.core.invoke(cmd, args);
+    }
+    if (window.__TAURI__?.invoke) {
+        return await window.__TAURI__.invoke(cmd, args);
+    }
+    console.warn("Tauri invoke API not detected, running in web mode");
+    throw new Error("Tauri API not available");
+}
 
 // Application State
 let currentStep = 1;
@@ -10,6 +19,7 @@ let configuredIrk = "";
 let unlockThreshold = -62;
 let lockThreshold = -82;
 let currentRssi = -65.0;
+let scanInterval = null;
 
 document.addEventListener("DOMContentLoaded", () => {
     initNavigation();
@@ -18,7 +28,8 @@ document.addEventListener("DOMContentLoaded", () => {
     initVaultHandlers();
     initQuickLock();
 
-    // Start simulated or live status updates
+    // Start live device polling and status updates
+    startLiveScannerPolling();
     startLiveUpdates();
 });
 
@@ -66,7 +77,6 @@ function goToStep(step) {
 function initScannerControls() {
     const btnToggle = document.getElementById("btn-toggle-scan");
     const scanStatusText = document.getElementById("scan-status-text");
-    const deviceList = document.getElementById("device-list");
 
     btnToggle.addEventListener("click", () => {
         isScanning = !isScanning;
@@ -82,48 +92,60 @@ function initScannerControls() {
             document.querySelector(".radar-sweep").style.display = "none";
         }
     });
+}
 
-    // Populate mock / live devices
-    setTimeout(() => {
-        renderDiscoveredDevices([
-            {
-                mac: "E3:42:19:B1:0A:94",
-                name: "Apple Watch (Nearby Info 0x10)",
-                rssi: -64,
-                onWrist: true,
-                autoUnlock: true
-            },
-            {
-                mac: "C8:90:7A:41:2F:10",
-                name: "iPhone (AirDrop / Handoff)",
-                rssi: -78,
-                onWrist: false,
-                autoUnlock: false
-            }
-        ]);
-    }, 1200);
+function startLiveScannerPolling() {
+    if (scanInterval) clearInterval(scanInterval);
+
+    scanInterval = setInterval(async () => {
+        if (!isScanning) return;
+        try {
+            const devices = await invoke("get_discovered_devices");
+            renderDiscoveredDevices(devices);
+        } catch (_) {
+            // Running in browser dev mode or scanner starting up
+        }
+    }, 800);
 }
 
 function renderDiscoveredDevices(devices) {
     const list = document.getElementById("device-list");
+    if (!list) return;
+
+    if (!devices || devices.length === 0) {
+        list.innerHTML = `
+            <div style="text-align: center; padding: 25px 15px; color: var(--text-secondary);">
+                <div style="font-size: 13.5px; font-weight: 500; margin-bottom: 6px;">Escaneando dispositivos Apple por Bluetooth...</div>
+                <div style="font-size: 11.5px; opacity: 0.85;">Ponte el Apple Watch en la muñeca, desbloquéalo con tu PIN y enciende la pantalla para emitir señal.</div>
+            </div>
+        `;
+        return;
+    }
+
     list.innerHTML = "";
 
     devices.forEach((dev, idx) => {
         const item = document.createElement("div");
-        item.className = `device-item ${idx === 0 ? "selected" : ""}`;
-        if (idx === 0) selectedMac = dev.mac;
+        const isSelected = selectedMac === dev.mac || (!selectedMac && idx === 0);
+        if (isSelected && !selectedMac) {
+            selectedMac = dev.mac;
+            currentRssi = dev.rssi;
+        }
+
+        item.className = `device-item ${isSelected ? "selected" : ""}`;
 
         item.innerHTML = `
             <div>
                 <strong>${dev.name}</strong>
-                <div style="font-size: 11.5px; color: var(--text-secondary);">${dev.mac}</div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); font-family: monospace;">${dev.mac}</div>
+                <div style="font-size: 10.5px; color: var(--text-secondary);">${dev.frame_type}</div>
             </div>
             <div style="text-align: right;">
-                <span style="color: ${dev.onWrist ? 'var(--success)' : 'var(--accent)'}; font-weight: 600;">
+                <span style="color: ${dev.on_wrist ? 'var(--success)' : 'var(--accent)'}; font-weight: 600;">
                     ${dev.rssi} dBm
                 </span>
-                <div style="font-size: 11px; color: ${dev.onWrist ? 'var(--success)' : 'var(--text-secondary)'};">
-                    ${dev.onWrist ? '● On Wrist & Unlocked' : 'In Proximity'}
+                <div style="font-size: 11px; color: ${dev.on_wrist ? 'var(--success)' : 'var(--text-secondary)'};">
+                    ${dev.on_wrist ? (dev.is_unlocked ? '● En muñeca y desbloqueado' : '● En muñeca (bloqueado)') : 'En proximidad'}
                 </div>
             </div>
         `;
@@ -132,6 +154,7 @@ function renderDiscoveredDevices(devices) {
             document.querySelectorAll(".device-item").forEach(el => el.classList.remove("selected"));
             item.classList.add("selected");
             selectedMac = dev.mac;
+            currentRssi = dev.rssi;
         });
 
         list.appendChild(item);
@@ -147,44 +170,45 @@ const irkFeedback = document.getElementById("irk-verification-feedback");
 
 if (btnImportReg) {
     btnImportReg.addEventListener("click", async () => {
-        btnImportReg.textContent = "Querying Registry (BTHPORT)...";
-        if (tauriInvoke) {
-            try {
-                const keys = await tauriInvoke("query_registry_keys");
-                displayRegistryKeys(keys);
-            } catch (err) {
-                regResults.innerHTML = `<span style="color: var(--danger)">${err}</span>`;
-            }
-        } else {
-            // Simulated response in browser mode
-            setTimeout(() => {
-                displayRegistryKeys([
-                    {
-                        device_mac: "d8b377c8e9f2",
-                        host_adapter_mac: "001a7dda710a",
-                        irk_hex: "ec0234a357c8ad05341010a60a397d9b",
-                        name: "Apple Watch Series 9"
-                    }
-                ]);
-                btnImportReg.textContent = "⚡ Inspect Paired Keys from Registry";
-            }, 500);
+        btnImportReg.textContent = "Consultando registro (BTHPORT)...";
+        try {
+            const keys = await invoke("query_registry_keys");
+            displayRegistryKeys(keys);
+        } catch (err) {
+            regResults.innerHTML = `
+                <div style="background: rgba(255, 75, 75, 0.1); border: 1px solid rgba(255, 75, 75, 0.3); padding: 12px; border-radius: 6px; margin-top: 10px;">
+                    <strong style="color: var(--danger); font-size: 12.5px;">Acceso restringido al registro</strong>
+                    <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px;">
+                        Windows requiere permisos de Administrador para leer BTHPORT. Ejecuta WristKey como Administrador o introduce la clave IRK manualmente abajo.
+                    </div>
+                </div>
+            `;
+        } finally {
+            btnImportReg.textContent = "⚡ Inspeccionar claves emparejadas";
         }
     });
 }
 
 function displayRegistryKeys(keys) {
     if (!keys || keys.length === 0) {
-        regResults.innerHTML = `<span style="color: var(--warning)">No paired BLE keys found or elevation required.</span>`;
+        regResults.innerHTML = `
+            <div style="background: rgba(255, 185, 0, 0.1); border: 1px solid rgba(255, 185, 0, 0.3); padding: 12px; border-radius: 6px; margin-top: 10px;">
+                <strong style="color: var(--warning); font-size: 12.5px;">No se encontraron claves de Apple Watch emparejadas en Windows.</strong>
+                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px;">
+                    Si no has vinculado el reloj en Configuración de Windows > Bluetooth, puedes introducir la clave IRK manualmente en la Opción B.
+                </div>
+            </div>
+        `;
         return;
     }
 
     regResults.innerHTML = keys.map(k => `
         <div style="background: rgba(255,255,255,0.06); padding: 10px; border-radius: 6px; margin-top: 8px;">
-            <strong>${k.name || 'Apple Device'} (${k.device_mac})</strong>
+            <strong>${k.name || 'Dispositivo Apple'} (${k.device_mac})</strong>
             <div style="font-family: monospace; font-size: 11.5px; color: var(--accent); margin: 4px 0;">
-                IRK: ${k.irk_hex || 'Not present'}
+                IRK: ${k.irk_hex || 'No disponible'}
             </div>
-            ${k.irk_hex ? `<button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="selectIrk('${k.irk_hex}')">Use This IRK</button>` : ''}
+            ${k.irk_hex ? `<button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="selectIrk('${k.irk_hex}')">Usar esta IRK</button>` : ''}
         </div>
     `).join("");
 }
@@ -192,28 +216,23 @@ function displayRegistryKeys(keys) {
 window.selectIrk = function(hex) {
     inputIrk.value = hex;
     configuredIrk = hex;
-    irkFeedback.innerHTML = `<span style="color: var(--success)">✓ IRK loaded from registry (${hex.slice(0, 10)}...)</span>`;
+    irkFeedback.innerHTML = `<span style="color: var(--success)">✓ IRK cargada (${hex.slice(0, 10)}...)</span>`;
 };
 
 if (btnVerifyIrk) {
     btnVerifyIrk.addEventListener("click", async () => {
         const val = inputIrk.value.trim();
         if (val.length !== 32) {
-            irkFeedback.innerHTML = `<span style="color: var(--danger)">IRK must be 32 hexadecimal characters (16 bytes).</span>`;
+            irkFeedback.innerHTML = `<span style="color: var(--danger)">La IRK debe tener 32 caracteres hexadecimales (16 bytes).</span>`;
             return;
         }
 
-        if (tauriInvoke) {
-            try {
-                const res = await tauriInvoke("verify_irk", { irk: val });
-                irkFeedback.innerHTML = `<span style="color: var(--success)">✓ Valid IRK cryptographic key! AES-128 verified.</span>`;
-                configuredIrk = val;
-            } catch (err) {
-                irkFeedback.innerHTML = `<span style="color: var(--danger)">Error: ${err}</span>`;
-            }
-        } else {
-            irkFeedback.innerHTML = `<span style="color: var(--success)">✓ Valid IRK! AES-128 resolution confirmed.</span>`;
+        try {
+            await invoke("verify_irk", { irk: val });
+            irkFeedback.innerHTML = `<span style="color: var(--success)">✓ Clave IRK criptográfica válida (AES-128 verificado).</span>`;
             configuredIrk = val;
+        } catch (err) {
+            irkFeedback.innerHTML = `<span style="color: var(--danger)">Error: ${err}</span>`;
         }
     });
 }
@@ -248,56 +267,54 @@ function initVaultHandlers() {
         const password = document.getElementById("vault-password").value;
 
         if (!username || !password) {
-            vaultFeedback.innerHTML = `<span style="color: var(--danger)">Please provide username and password/PIN.</span>`;
+            vaultFeedback.innerHTML = `<span style="color: var(--danger)">Introduce usuario y contraseña/PIN.</span>`;
             return;
         }
 
-        if (tauriInvoke) {
-            try {
-                await tauriInvoke("save_credentials", { domain, username, password });
-                vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Saved securely to Windows DPAPI vault!</span>`;
-            } catch (err) {
-                vaultFeedback.innerHTML = `<span style="color: var(--danger)">${err}</span>`;
-            }
-        } else {
-            vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Credentials protected with DPAPI (CryptProtectData).</span>`;
+        try {
+            await invoke("save_credentials", { domain, username, password });
+            vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Guardado seguro en la bóveda DPAPI de Windows.</span>`;
+        } catch (err) {
+            vaultFeedback.innerHTML = `<span style="color: var(--danger)">${err}</span>`;
         }
     });
 
     btnTestVault.addEventListener("click", async () => {
-        if (tauriInvoke) {
-            try {
-                const res = await tauriInvoke("test_vault");
-                vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Vault decrypted: ${res.username} (${res.domain})</span>`;
-            } catch (err) {
-                vaultFeedback.innerHTML = `<span style="color: var(--danger)">Vault error: ${err}</span>`;
-            }
-        } else {
-            vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ DPAPI Decryption successful: user verified.</span>`;
+        try {
+            const res = await invoke("test_vault");
+            vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Bóveda verificada: ${res.username} (${res.domain})</span>`;
+        } catch (err) {
+            vaultFeedback.innerHTML = `<span style="color: var(--danger)">Error en la bóveda: ${err}</span>`;
         }
     });
 }
 
 function initQuickLock() {
     const btnLock = document.getElementById("btn-quick-lock");
-    btnLock.addEventListener("click", async () => {
-        if (tauriInvoke) {
-            await tauriInvoke("test_workstation_lock");
-        } else {
-            alert("[WristKey] user32::LockWorkStation() executed! Screen locked.");
-        }
-    });
+    if (btnLock) {
+        btnLock.addEventListener("click", async () => {
+            try {
+                await invoke("test_workstation_lock");
+            } catch (err) {
+                console.error("Lock error:", err);
+            }
+        });
+    }
 }
 
-// Live Signal Simulation & Updates
+// Live Signal Updates
 function startLiveUpdates() {
-    setInterval(() => {
+    setInterval(async () => {
         if (!isScanning) return;
 
-        // Slight jitter to simulate real RSSI
-        const jitter = (Math.random() - 0.5) * 3.5;
-        currentRssi = Math.round((currentRssi + jitter) * 10) / 10;
-        currentRssi = Math.max(-95, Math.min(-45, currentRssi));
+        if (selectedMac) {
+            try {
+                const liveRssi = await invoke("get_device_rssi", { mac: selectedMac });
+                if (liveRssi !== null && liveRssi !== undefined) {
+                    currentRssi = liveRssi;
+                }
+            } catch (_) {}
+        }
 
         // Update Calibration Meter
         const elRssi = document.getElementById("cal-rssi-value");
@@ -318,14 +335,14 @@ function startLiveUpdates() {
 
         if (elState) {
             if (currentRssi >= unlockThreshold) {
-                elState.textContent = "NEAR (Ready to Unlock)";
+                elState.textContent = "CERCA (Listo para desbloquear)";
                 elState.className = "tag-near";
             } else if (currentRssi <= lockThreshold) {
-                elState.textContent = "FAR (Auto-Lock Zone)";
+                elState.textContent = "LEJOS (Zona de auto-bloqueo)";
                 elState.className = "tag-far";
                 elState.style.color = "var(--danger)";
             } else {
-                elState.textContent = "INTERMEDIATE (Hysteresis Gap)";
+                elState.textContent = "ZONA MEDIA (Histéresis)";
                 elState.className = "tag-mid";
                 elState.style.color = "var(--warning)";
             }
@@ -335,6 +352,6 @@ function startLiveUpdates() {
         const dashRssi = document.getElementById("dash-rssi");
         const dashDist = document.getElementById("dash-dist");
         if (dashRssi) dashRssi.textContent = `${currentRssi.toFixed(1)} dBm`;
-        if (dashDist) dashDist.textContent = `~${dist.toFixed(1)} meters`;
+        if (dashDist) dashDist.textContent = `~${dist.toFixed(1)} m`;
     }, 800);
 }
