@@ -105,14 +105,26 @@ cargo run -p wristkey-cli -- --telemetry
 
 Streams real-time decoded Apple Continuity bitfields: Action Code, On-Wrist flag, Passcode Locked state, Auto-Unlock capability, Wi-Fi status, and Auth Tags.
 
-### 7. Enable Auto-Lock
+### 7. Configure Proximity Auto-Unlock (DPAPI Vault)
 
 ```powershell
-# Auto-lock with custom threshold:
-cargo run -p wristkey-cli -- --auto-lock --lock-threshold -82
+# Set up login credentials encrypted with Windows DPAPI
+cargo run -p wristkey-cli -- --setup-credentials
+
+# Test vault encryption / decryption
+cargo run -p wristkey-cli -- --test-vault
 ```
 
-When your Apple Watch drops below `-82 dBm` (or signal is lost for > 5 seconds, or the watch is removed from your wrist), Windows calls `LockWorkStation()` to lock your PC automatically.
+Credentials are encrypted using Windows Data Protection API (`CryptProtectData`), tied strictly to your Windows user account master key. No plaintext password is ever written to disk.
+
+### 8. Enable Proximity Auto-Lock & Auto-Unlock
+
+```powershell
+cargo run -p wristkey-cli -- --auto-lock --auto-unlock --lock-threshold -82 --unlock-threshold -62
+```
+
+- **Away:** When you walk away (or remove the watch from your wrist), Windows locks immediately.
+- **Approach:** When you return to your desk with your unlocked Apple Watch, WristKey wakes the lock screen and authorizes the Credential Provider via secure Named Pipe IPC (`\\.\pipe\WristKeyUnlockPipe`) to unlock your desktop seamlessly.
 
 ---
 
@@ -120,7 +132,7 @@ When your Apple Watch drops below `-82 dBm` (or signal is lost for > 5 seconds, 
 
 - [x] **Fase 1:** BLE WinRT core scanner, Apple Continuity parser, RSSI EMA filter, auto-lock mechanism, and CLI.
 - [x] **Fase 2:** Automated IRK extraction from Windows Registry (`HKLM\...\BTHPORT\Parameters\Keys`), on-wrist presence manager, and Apple Continuity telemetry.
-- [ ] **Fase 3:** Secure unlock via Windows Credential Provider V2 and DPAPI credential vault.
+- [x] **Fase 3:** Secure unlock via Windows Credential Provider V2, Named Pipe IPC, and DPAPI credential vault.
 - [ ] **Fase 4:** Fluent 2 Setup Wizard (Tauri v2) with visual radar calibrator.
 
 ---
