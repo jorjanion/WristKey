@@ -17,7 +17,16 @@ pub struct DiscoveredDeviceDto {
     pub on_wrist: bool,
     pub is_unlocked: bool,
     pub frame_type: String,
+    pub is_watch_candidate: bool,
     pub last_seen_ms_ago: u64,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct UpdateInfo {
+    pub current_version: String,
+    pub latest_version: String,
+    pub download_url: String,
+    pub release_notes: String,
 }
 
 struct DeviceEntry {
@@ -34,8 +43,8 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
     let mut results = Vec::new();
 
     if let Ok(mut lock) = DEVICES.lock() {
-        // Retain only devices seen within the last 20 seconds
-        lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 20);
+        // Retain only devices seen within the last 15 seconds
+        lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 15);
 
         for entry in lock.values() {
             let mut dev = entry.device.clone();
@@ -56,6 +65,88 @@ fn get_device_rssi(mac: String) -> Option<i16> {
     } else {
         None
     }
+}
+
+#[tauri::command]
+fn check_for_updates() -> Result<Option<UpdateInfo>, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    let output = std::process::Command::new("curl.exe")
+        .args(&[
+            "-s",
+            "-H",
+            "User-Agent: WristKey",
+            "https://api.github.com/repos/jorjanion/WristKey/releases/latest",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to check for updates: {}", e))?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let body = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(_) => return Ok(None),
+    };
+
+    let tag = json.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
+    let latest_clean = tag.trim_start_matches('v');
+
+    if !latest_clean.is_empty() && latest_clean != current_version {
+        let mut download_url = json
+            .get("html_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        if let Some(assets) = json.get("assets").and_then(|v| v.as_array()) {
+            for asset in assets {
+                if let Some(name) = asset.get("name").and_then(|v| v.as_str()) {
+                    if name.ends_with(".exe") {
+                        if let Some(url) = asset.get("browser_download_url").and_then(|v| v.as_str()) {
+                            download_url = url.to_string();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let notes = json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        return Ok(Some(UpdateInfo {
+            current_version: current_version.to_string(),
+            latest_version: tag.to_string(),
+            download_url,
+            release_notes: notes,
+        }));
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
+fn download_and_install_update(download_url: String) -> Result<(), String> {
+    std::thread::spawn(move || {
+        let temp_dir = std::env::temp_dir();
+        let target_exe = temp_dir.join("WristKey-Update.exe");
+        let target_path = target_exe.to_string_lossy().to_string();
+
+        let status = std::process::Command::new("curl.exe")
+            .args(&["-L", "-s", "-o", &target_path, &download_url])
+            .status();
+
+        if let Ok(s) = status {
+            if s.success() {
+                let _ = std::process::Command::new(&target_exe).spawn();
+                std::process::exit(0);
+            }
+        }
+    });
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -106,14 +197,18 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
+                        let is_watch_candidate = frame.message_type == 0x10 || frame.is_on_wrist;
+
                         let name = if frame.is_on_wrist_and_unlocked {
-                            "Apple Watch (On Wrist & Unlocked)".to_string()
+                            "Apple Watch (En muñeca y desbloqueado)".to_string()
                         } else if frame.is_on_wrist {
-                            "Apple Watch (On Wrist, Locked)".to_string()
+                            "Apple Watch (En muñeca, bloqueado)".to_string()
                         } else if frame.message_type == 0x10 {
                             "Apple Watch / iPhone (Nearby Info 0x10)".to_string()
+                        } else if frame.message_type == 0x12 {
+                            "Dispositivo Apple (Find My / AirTag)".to_string()
                         } else {
-                            format!("Apple Device ({})", frame.message_type_name)
+                            format!("Dispositivo Apple ({})", frame.message_type_name)
                         };
 
                         let dto = DiscoveredDeviceDto {
@@ -123,6 +218,7 @@ fn start_background_scanner() {
                             on_wrist: frame.is_on_wrist,
                             is_unlocked: !frame.is_locked,
                             frame_type: frame.message_type_name,
+                            is_watch_candidate,
                             last_seen_ms_ago: 0,
                         };
 
@@ -153,6 +249,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_discovered_devices,
             get_device_rssi,
+            check_for_updates,
+            download_and_install_update,
             query_registry_keys,
             verify_irk,
             save_credentials,

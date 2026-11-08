@@ -48,6 +48,21 @@
 
         <!-- Main Content Area -->
         <main class="content-area">
+            <!-- Update Notification Banner -->
+            <div id="update-banner" class="update-banner" style="display: none;">
+                <div class="update-banner-left">
+                    <span class="update-badge">ACTUALIZACIÓN</span>
+                    <div class="update-text">
+                        <strong>¡Nueva versión disponible: <span id="update-version-tag"></span>!</strong>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">Hay mejoras y correcciones disponibles para WristKey.</div>
+                    </div>
+                </div>
+                <div class="update-banner-right">
+                    <button id="btn-update-now" class="btn btn-primary btn-sm">Actualizar ahora ➔</button>
+                    <button id="btn-dismiss-update" class="btn-icon" title="Cerrar aviso">✕</button>
+                </div>
+            </div>
+
             <!-- STEP 1: DISCOVERY -->
             <section id="step-1" class="wizard-step active">
                 <div class="step-header">

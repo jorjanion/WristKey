@@ -28,10 +28,86 @@ document.addEventListener("DOMContentLoaded", () => {
     initVaultHandlers();
     initQuickLock();
 
+    // Check for updates on startup
+    checkForUpdates();
+
     // Start live device polling and status updates
     startLiveScannerPolling();
     startLiveUpdates();
 });
+
+// Auto-Updater
+async function checkForUpdates() {
+    try {
+        const update = await invoke("check_for_updates");
+        if (update) {
+            showUpdateBanner(update);
+        }
+    } catch (e) {
+        console.log("Update check info:", e);
+    }
+}
+
+function showUpdateBanner(update) {
+    const banner = document.getElementById("update-banner");
+    const versionTag = document.getElementById("update-version-tag");
+    const btnUpdate = document.getElementById("btn-update-now");
+    const btnDismiss = document.getElementById("btn-dismiss-update");
+
+    if (!banner || !versionTag) return;
+
+    versionTag.textContent = update.latest_version;
+    banner.style.display = "flex";
+
+    btnUpdate.onclick = async () => {
+        btnUpdate.disabled = true;
+        btnUpdate.textContent = "Descargando e instalando...";
+        try {
+            await invoke("download_and_install_update", { downloadUrl: update.download_url });
+        } catch (err) {
+            alert("Error al descargar actualización: " + err);
+            btnUpdate.disabled = false;
+            btnUpdate.textContent = "Reintentar";
+        }
+    };
+
+    btnDismiss.onclick = () => {
+        banner.style.display = "none";
+    };
+}
+
+// Convert raw dBm into everyday human-readable proximity
+function getHumanSignal(rssi) {
+    if (rssi >= -50) {
+        return {
+            distance: "Al lado del PC (< 0.5 m)",
+            quality: "Señal excelente",
+            colorClass: "proximity-very-near",
+            bars: "📶 Fuerte"
+        };
+    } else if (rssi >= -65) {
+        return {
+            distance: "En el escritorio (~1 m)",
+            quality: "Señal buena",
+            colorClass: "proximity-near",
+            bars: "📶 Buena"
+        };
+    } else if (rssi >= -78) {
+        return {
+            distance: "En la habitación (~2-3 m)",
+            quality: "Señal media",
+            colorClass: "proximity-mid",
+            bars: "📶 Media"
+        };
+    } else {
+        return {
+            distance: "Lejos (> 4 m)",
+            quality: "Señal débil",
+            colorClass: "proximity-far",
+            bars: "📶 Lejos"
+        };
+    }
+}
 
 // Step Navigation
 function initNavigation() {
@@ -81,14 +157,14 @@ function initScannerControls() {
     btnToggle.addEventListener("click", () => {
         isScanning = !isScanning;
         if (isScanning) {
-            btnToggle.textContent = "Scanning...";
+            btnToggle.textContent = "Buscando...";
             btnToggle.classList.replace("btn-secondary", "btn-primary");
-            scanStatusText.textContent = "Listening for Apple Continuity advertisements";
+            scanStatusText.textContent = "Escuchando emisiones Bluetooth de dispositivos Apple";
             document.querySelector(".radar-sweep").style.display = "block";
         } else {
-            btnToggle.textContent = "Resume Scan";
+            btnToggle.textContent = "Reanudar búsqueda";
             btnToggle.classList.replace("btn-primary", "btn-secondary");
-            scanStatusText.textContent = "Scan paused";
+            scanStatusText.textContent = "Búsqueda en pausa";
             document.querySelector(".radar-sweep").style.display = "none";
         }
     });
@@ -103,7 +179,7 @@ function startLiveScannerPolling() {
             const devices = await invoke("get_discovered_devices");
             renderDiscoveredDevices(devices);
         } catch (_) {
-            // Running in browser dev mode or scanner starting up
+            // Scanner starting or web fallback
         }
     }, 800);
 }
@@ -114,9 +190,11 @@ function renderDiscoveredDevices(devices) {
 
     if (!devices || devices.length === 0) {
         list.innerHTML = `
-            <div style="text-align: center; padding: 25px 15px; color: var(--text-secondary);">
-                <div style="font-size: 13.5px; font-weight: 500; margin-bottom: 6px;">Escaneando dispositivos Apple por Bluetooth...</div>
-                <div style="font-size: 11.5px; opacity: 0.85;">Ponte el Apple Watch en la muñeca, desbloquéalo con tu PIN y enciende la pantalla para emitir señal.</div>
+            <div class="empty-state">
+                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px;">Buscando tu Apple Watch...</div>
+                <div style="font-size: 12px; color: var(--text-secondary); max-width: 440px; margin: 0 auto; line-height: 1.6;">
+                    Coloca tu reloj cerca del ordenador o en tu muñeca. Toca la pantalla para que emita señal Bluetooth.
+                </div>
             </div>
         `;
         return;
@@ -132,21 +210,24 @@ function renderDiscoveredDevices(devices) {
             currentRssi = dev.rssi;
         }
 
-        item.className = `device-item ${isSelected ? "selected" : ""}`;
+        const signal = getHumanSignal(dev.rssi);
+        const isClosest = idx === 0 && dev.rssi >= -65;
+
+        item.className = `device-item ${isSelected ? "selected" : ""} ${isClosest ? "is-closest" : ""}`;
 
         item.innerHTML = `
             <div>
-                <strong>${dev.name}</strong>
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px;">
+                    <span class="badge-watch">⌚ ${dev.name}</span>
+                    ${isClosest ? '<span class="badge-closest">⭐ MÁS CERCANO (Al lado de tu PC)</span>' : ''}
+                </div>
                 <div style="font-size: 11.5px; color: var(--text-secondary); font-family: monospace;">${dev.mac}</div>
-                <div style="font-size: 10.5px; color: var(--text-secondary);">${dev.frame_type}</div>
             </div>
             <div style="text-align: right;">
-                <span style="color: ${dev.on_wrist ? 'var(--success)' : 'var(--accent)'}; font-weight: 600;">
-                    ${dev.rssi} dBm
-                </span>
-                <div style="font-size: 11px; color: ${dev.on_wrist ? 'var(--success)' : 'var(--text-secondary)'};">
-                    ${dev.on_wrist ? (dev.is_unlocked ? '● En muñeca y desbloqueado' : '● En muñeca (bloqueado)') : 'En proximidad'}
+                <div class="proximity-tag ${signal.colorClass}">
+                    <span>${signal.distance}</span>
                 </div>
+                <span class="signal-dbm-pill">${signal.quality} · ${dev.rssi} dBm</span>
             </div>
         `;
 
@@ -179,7 +260,7 @@ if (btnImportReg) {
                 <div style="background: rgba(255, 75, 75, 0.1); border: 1px solid rgba(255, 75, 75, 0.3); padding: 12px; border-radius: 6px; margin-top: 10px;">
                     <strong style="color: var(--danger); font-size: 12.5px;">Acceso restringido al registro</strong>
                     <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px;">
-                        Windows requiere permisos de Administrador para leer BTHPORT. Ejecuta WristKey como Administrador o introduce la clave IRK manualmente abajo.
+                        Windows requiere permisos de Administrador para leer claves Bluetooth emparejadas. Ejecuta WristKey como Administrador o introduce la clave IRK manualmente abajo.
                     </div>
                 </div>
             `;
@@ -216,20 +297,20 @@ function displayRegistryKeys(keys) {
 window.selectIrk = function(hex) {
     inputIrk.value = hex;
     configuredIrk = hex;
-    irkFeedback.innerHTML = `<span style="color: var(--success)">✓ IRK cargada (${hex.slice(0, 10)}...)</span>`;
+    irkFeedback.innerHTML = `<span style="color: var(--success)">✓ Clave IRK cargada (${hex.slice(0, 10)}...)</span>`;
 };
 
 if (btnVerifyIrk) {
     btnVerifyIrk.addEventListener("click", async () => {
         const val = inputIrk.value.trim();
         if (val.length !== 32) {
-            irkFeedback.innerHTML = `<span style="color: var(--danger)">La IRK debe tener 32 caracteres hexadecimales (16 bytes).</span>`;
+            irkFeedback.innerHTML = `<span style="color: var(--danger)">La clave IRK debe tener 32 caracteres hexadecimales (16 bytes).</span>`;
             return;
         }
 
         try {
             await invoke("verify_irk", { irk: val });
-            irkFeedback.innerHTML = `<span style="color: var(--success)">✓ Clave IRK criptográfica válida (AES-128 verificado).</span>`;
+            irkFeedback.innerHTML = `<span style="color: var(--success)">✓ Clave IRK válida (Criptografía AES-128 verificada).</span>`;
             configuredIrk = val;
         } catch (err) {
             irkFeedback.innerHTML = `<span style="color: var(--danger)">Error: ${err}</span>`;
