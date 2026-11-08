@@ -5,16 +5,16 @@ use std::thread::sleep;
 use std::time::Duration;
 use wristkey_core::{
     format_mac, is_elevated, lock_workstation, read_paired_bluetooth_keys, BleScanner,
-    IrkResolver, ProximityState, RssiTracker, WatchPresenceManager, WatchSecurityStatus,
-    WristKeyConfig, WristKeyEngine,
+    CredentialVault, IpcServer, IrkResolver, LockScreenController, ProximityState, RssiTracker,
+    UserCredentials, WatchPresenceManager, WatchSecurityStatus, WristKeyConfig, WristKeyEngine,
 };
 
 #[derive(Parser, Debug)]
 #[command(
     name = "wristkey-cli",
     author = "Jorge",
-    version = "0.2.0",
-    about = "WristKey CLI: Apple Watch proximity BLE scanner, IRK pairing, and presence manager"
+    version = "0.3.0",
+    about = "WristKey CLI: Apple Watch proximity BLE scanner, IRK pairing, and session unlock manager"
 )]
 struct Args {
     /// Scan for all nearby Apple BLE devices in active mode
@@ -33,9 +33,29 @@ struct Args {
     #[arg(long)]
     telemetry: bool,
 
+    /// Configure Windows login credentials encrypted with DPAPI for proximity auto-unlock
+    #[arg(long)]
+    setup_credentials: bool,
+
+    /// Test DPAPI credential vault encryption and decryption
+    #[arg(long)]
+    test_vault: bool,
+
+    /// Delete credentials from DPAPI vault
+    #[arg(long)]
+    clear_credentials: bool,
+
     /// Automatically lock PC when device moves out of range or is removed from wrist
     #[arg(long)]
     auto_lock: bool,
+
+    /// Automatically wake display and authorize unlock when Apple Watch approaches PC
+    #[arg(long)]
+    auto_unlock: bool,
+
+    /// Test waking display and prompting LogonUI
+    #[arg(long)]
+    wake_logon: bool,
 
     /// Signal threshold in dBm to trigger lock (e.g. -82)
     #[arg(long, default_value_t = -82.0)]
@@ -78,6 +98,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if args.wake_logon {
+        println!("{}", "Waking display and triggering lock screen...".yellow());
+        LockScreenController::wake_and_prompt_logon();
+        println!("{}", "Wake signal sent.".green().bold());
+        return Ok(());
+    }
+
+    if args.setup_credentials {
+        return run_setup_credentials();
+    }
+
+    if args.test_vault {
+        return run_test_vault();
+    }
+
+    if args.clear_credentials {
+        let vault = CredentialVault::new_default();
+        vault.clear()?;
+        println!("{}", "Credential vault cleared successfully.".green().bold());
+        return Ok(());
+    }
+
     if args.list_keys {
         return run_list_keys();
     }
@@ -90,15 +132,94 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return run_calibration(&args);
     }
 
-    // Default to scan mode if no specific action provided
+    // Default to scan / daemon mode
     run_scan(&args)
 }
 
 fn print_banner() {
     println!("{}", "==========================================================".cyan());
     println!("{}", "       WristKey - Apple Watch Proximity Unlock/Lock       ".cyan().bold());
-    println!("{}", "              Windows 11 / 10 BLE Engine (Phase 2)        ".cyan());
+    println!("{}", "              Windows 11 / 10 BLE Engine (Phase 3)        ".cyan());
     println!("{}", "==========================================================".cyan());
+}
+
+fn run_setup_credentials() -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n{}", "--- Windows Credential Setup (DPAPI Encrypted Vault) ---".bold().magenta());
+    println!("Credentials are encrypted with your Windows account master key.");
+    println!("They will only be used to authorize session unlock via the Credential Provider.\n");
+
+    let current_user = std::env::var("USERNAME").unwrap_or_else(|_| ".".to_string());
+    let current_domain = std::env::var("USERDOMAIN").unwrap_or_else(|_| ".".to_string());
+
+    print!("Domain [{}]: ", current_domain.yellow());
+    stdout().flush()?;
+    let mut domain_input = String::new();
+    std::io::stdin().read_line(&mut domain_input)?;
+    let domain = if domain_input.trim().is_empty() {
+        current_domain
+    } else {
+        domain_input.trim().to_string()
+    };
+
+    print!("Username [{}]: ", current_user.yellow());
+    stdout().flush()?;
+    let mut user_input = String::new();
+    std::io::stdin().read_line(&mut user_input)?;
+    let username = if user_input.trim().is_empty() {
+        current_user
+    } else {
+        user_input.trim().to_string()
+    };
+
+    print!("Password or PIN: ");
+    stdout().flush()?;
+    let mut password_input = String::new();
+    std::io::stdin().read_line(&mut password_input)?;
+    let password = password_input.trim().to_string();
+
+    if password.is_empty() {
+        println!("{}", "Password cannot be empty.".red().bold());
+        return Ok(());
+    }
+
+    let creds = UserCredentials::new(domain, username, password);
+    let vault = CredentialVault::new_default();
+    vault.save(&creds)?;
+
+    println!(
+        "\n{} Saved encrypted credentials to {:?}",
+        "SUCCESS:".green().bold(),
+        vault.vault_path()
+    );
+    println!("Proximity unlock is now enabled for user: {}\\{}", creds.domain, creds.username);
+    Ok(())
+}
+
+fn run_test_vault() -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n{}", "Testing DPAPI Credential Vault...".bold());
+    let vault = CredentialVault::new_default();
+
+    if !vault.exists() {
+        println!(
+            "{}",
+            "Vault does not exist yet. Run 'wristkey-cli --setup-credentials' to create it.".yellow()
+        );
+        return Ok(());
+    }
+
+    match vault.load() {
+        Ok(creds) => {
+            println!("{}", "DPAPI Decryption Successful!".green().bold());
+            println!("  Domain:   {}", creds.domain);
+            println!("  Username: {}", creds.username);
+            println!("  Password: [{} characters, hidden]", creds.password.len());
+        }
+        Err(e) => {
+            eprintln!("{} {}", "Failed to decrypt credentials:".red().bold(), e);
+        }
+    }
+
+    Ok(())
 }
 
 fn run_list_keys() -> Result<(), Box<dyn std::error::Error>> {
@@ -236,7 +357,7 @@ fn run_telemetry(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_scan(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n{}", "Initializing BLE Scanner (Active Mode)...".bold());
+    println!("\n{}", "Initializing BLE Scanner & IPC Server (Phase 3)...".bold());
     if let Some(ref irk) = args.irk {
         println!("Filtering exclusively for IRK: {}", irk.yellow());
     } else {
@@ -247,15 +368,43 @@ fn run_scan(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", "AUTO-LOCK ENABLED: System will lock when device moves out of range or is removed from wrist!".red().bold());
     }
 
+    if args.auto_unlock {
+        println!("{}", "AUTO-UNLOCK ENABLED: System will wake display and authorize unlock in close range!".green().bold());
+    }
+
     let config = WristKeyConfig {
         target_irk_hex: args.irk.clone(),
         lock_threshold_dbm: args.lock_threshold,
         unlock_threshold_dbm: args.unlock_threshold,
         auto_lock_enabled: args.auto_lock,
-        require_on_wrist: false,
+        auto_unlock_enabled: args.auto_unlock,
+        require_on_wrist: true,
     };
 
-    let mut engine = WristKeyEngine::new(config)?;
+    let engine = std::sync::Arc::new(std::sync::Mutex::new(WristKeyEngine::new(config)?));
+
+    // Start Named Pipe IPC Server for Credential Provider
+    let engine_ipc = engine.clone();
+    let ipc_server = IpcServer::new();
+    ipc_server.start(move || {
+        let eng = engine_ipc.lock().unwrap();
+        if let Some(ref mgr) = eng.presence_manager {
+            (
+                mgr.can_unlock(),
+                mgr.rssi_tracker.smoothed_rssi,
+                mgr.last_frame.as_ref().map(|f| f.is_on_wrist).unwrap_or(false),
+                mgr.last_frame.as_ref().map(|f| f.is_locked).unwrap_or(false),
+            )
+        } else {
+            (
+                eng.rssi_tracker.should_unlock(),
+                eng.rssi_tracker.smoothed_rssi,
+                false,
+                false,
+            )
+        }
+    })?;
+
     let mut scanner = BleScanner::new();
     let rx = scanner.start()?;
 
@@ -264,7 +413,8 @@ fn run_scan(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         while let Ok(event) = rx.try_recv() {
-            let matched = engine.handle_event(&event);
+            let mut eng = engine.lock().unwrap();
+            let matched = eng.handle_event(&event);
 
             if args.irk.is_some() && !matched {
                 continue;
@@ -297,7 +447,11 @@ fn run_scan(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             );
         }
 
-        engine.tick();
+        {
+            let mut eng = engine.lock().unwrap();
+            eng.tick();
+        }
+
         sleep(Duration::from_millis(200));
     }
 }
@@ -352,7 +506,6 @@ fn run_calibration(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = stdout().flush();
                 }
             } else {
-                // Discovery calibration without specific IRK
                 if event.apple_frame.is_some() {
                     fallback_tracker.update(event.rssi);
                     let smoothed = fallback_tracker.smoothed_rssi.unwrap_or(event.rssi as f64);
