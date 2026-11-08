@@ -1,17 +1,23 @@
 pub mod continuity;
 pub mod crypto;
 pub mod device;
+pub mod dpapi;
+pub mod ipc;
 pub mod lock;
 pub mod registry;
 pub mod rssi;
+pub mod sas;
 pub mod scanner;
 
 pub use continuity::{AppleContinuityFrame, APPLE_COMPANY_ID};
 pub use crypto::{format_mac, CryptoError, IrkResolver};
 pub use device::{WatchPresenceManager, WatchSecurityStatus};
+pub use dpapi::{protect_data, unprotect_data, CredentialVault, DpapiError, UserCredentials};
+pub use ipc::{send_ipc_request, IpcError, IpcRequest, IpcResponse, IpcServer, WRISTKEY_PIPE_NAME};
 pub use lock::{lock_workstation, LockError};
 pub use registry::{is_elevated, read_paired_bluetooth_keys, PairedBluetoothKey, RegistryError};
 pub use rssi::{ProximityState, RssiTracker};
+pub use sas::LockScreenController;
 pub use scanner::{BleAdvertisementEvent, BleScanner, ScannerError};
 
 use log::{info, warn};
@@ -28,6 +34,8 @@ pub struct WristKeyConfig {
     pub unlock_threshold_dbm: f64,
     /// Automatically lock PC when out of range.
     pub auto_lock_enabled: bool,
+    /// Automatically wake display and authorize unlock when in close proximity.
+    pub auto_unlock_enabled: bool,
     /// Require Apple Watch to report on-wrist and unlocked state.
     pub require_on_wrist: bool,
 }
@@ -39,6 +47,7 @@ impl Default for WristKeyConfig {
             lock_threshold_dbm: -82.0,
             unlock_threshold_dbm: -62.0,
             auto_lock_enabled: false,
+            auto_unlock_enabled: false,
             require_on_wrist: true,
         }
     }
@@ -101,8 +110,12 @@ impl WristKeyEngine {
                 }
             }
 
+            // Check auto-unlock proximity condition
             if self.is_locked && mgr.can_unlock() {
-                info!("Authorized Apple Watch in close proximity. Lock state cleared.");
+                info!("Authorized Apple Watch in close proximity. Initiating unlock sequence.");
+                if self.config.auto_unlock_enabled {
+                    LockScreenController::wake_and_prompt_logon();
+                }
                 self.is_locked = false;
             }
 
@@ -137,6 +150,9 @@ impl WristKeyEngine {
             }
 
             if self.is_locked && self.rssi_tracker.should_unlock() {
+                if self.config.auto_unlock_enabled {
+                    LockScreenController::wake_and_prompt_logon();
+                }
                 self.is_locked = false;
             }
 
