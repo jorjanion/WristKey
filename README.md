@@ -19,8 +19,7 @@ Designed for **everyone** (both technical and non-technical users): comes with a
 
 ### 1. Download the Installer
 Go to the **[Latest GitHub Releases](https://github.com/jorjanion/WristKey/releases)** and download:
-* **`WristKey_0.4.0_x64-setup.exe`** (Standard Windows Installer) or
-* **`WristKey_0.4.0_x64.msi`** (Enterprise / Windows Installer Package)
+* **`WristKey_0.4.0_x64-setup.exe`** (Single-click Windows Installer)
 
 Double-click to install. It installs WristKey to your Start Menu and Desktop.
 
