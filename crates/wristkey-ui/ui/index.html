@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WristKey - Apple Watch Proximity Setup</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation / Steps -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">⌚</div>
+                <div class="brand-text">
+                    <h1>WristKey</h1>
+                    <span class="version-tag">v0.4 Fluent</span>
+                </div>
+            </div>
+
+            <nav class="wizard-nav">
+                <button class="nav-item active" data-step="1">
+                    <span class="step-num">1</span>
+                    <span class="step-label">Discover Watch</span>
+                </button>
+                <button class="nav-item" data-step="2">
+                    <span class="step-num">2</span>
+                    <span class="step-label">IRK Pairing</span>
+                </button>
+                <button class="nav-item" data-step="3">
+                    <span class="step-num">3</span>
+                    <span class="step-label">Calibrate Range</span>
+                </button>
+                <button class="nav-item" data-step="4">
+                    <span class="step-num">4</span>
+                    <span class="step-label">Auto-Unlock Vault</span>
+                </button>
+                <button class="nav-item" data-step="5">
+                    <span class="step-num">5</span>
+                    <span class="step-label">Dashboard</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="btn-quick-lock" class="btn btn-secondary">🔒 Test Lock (user32)</button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+            <!-- STEP 1: DISCOVERY -->
+            <section id="step-1" class="wizard-step active">
+                <div class="step-header">
+                    <h2>Discover Your Apple Watch</h2>
+                    <p class="subtitle">WristKey is scanning for nearby Apple Bluetooth Low Energy devices in active mode.</p>
+                </div>
+
+                <div class="radar-container">
+                    <div class="radar-sweep"></div>
+                    <div class="radar-circle circle-1"></div>
+                    <div class="radar-circle circle-2"></div>
+                    <div class="radar-circle circle-3"></div>
+                    <div class="radar-center">⌚</div>
+                </div>
+
+                <div class="scanner-controls">
+                    <button id="btn-toggle-scan" class="btn btn-primary">Scanning...</button>
+                    <span id="scan-status-text" class="status-indicator">Listening for Apple Continuity advertisements</span>
+                </div>
+
+                <div class="device-list-container">
+                    <h3>Discovered Apple Devices</h3>
+                    <div id="device-list" class="device-list">
+                        <div class="empty-state">Looking for Apple Watches nearby... Make sure Bluetooth is enabled on your PC.</div>
+                    </div>
+                </div>
+
+                <div class="step-footer">
+                    <div></div>
+                    <button class="btn btn-primary btn-next" data-next="2">Next: Pairing & IRK ➔</button>
+                </div>
+            </section>
+
+            <!-- STEP 2: IRK PAIRING -->
+            <section id="step-2" class="wizard-step">
+                <div class="step-header">
+                    <h2>Identity Resolving Key (IRK)</h2>
+                    <p class="subtitle">Apple Watches change their Bluetooth address every 15 minutes. The IRK allows WristKey to recognize your watch through rotating MAC addresses.</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Option A: Automatic Import from Windows Registry</span>
+                        <span class="badge badge-accent">Recommended</span>
+                    </div>
+                    <p class="card-desc">Windows stores pairing keys in <code>HKLM\...\BTHPORT\Parameters\Keys</code> when your watch is paired with Windows Bluetooth.</p>
+                    <button id="btn-import-registry" class="btn btn-secondary">⚡ Inspect Paired Keys from Registry</button>
+                    <div id="registry-results" class="registry-results"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Option B: Manual IRK Configuration</span>
+                    </div>
+                    <p class="card-desc">Enter your 32-character hexadecimal Identity Resolving Key:</p>
+                    <div class="input-group">
+                        <input type="text" id="input-irk" class="text-input" placeholder="e.g. ec0234a357c8ad05341010a60a397d9b" maxlength="32">
+                        <button id="btn-verify-irk" class="btn btn-secondary">Verify AES-128</button>
+                    </div>
+                    <div id="irk-verification-feedback" class="feedback-text"></div>
+                </div>
+
+                <div class="step-footer">
+                    <button class="btn btn-secondary btn-prev" data-prev="1">⬅ Back</button>
+                    <button class="btn btn-primary btn-next" data-next="3">Next: Distance Calibration ➔</button>
+                </div>
+            </section>
+
+            <!-- STEP 3: DISTANCE CALIBRATION -->
+            <section id="step-3" class="wizard-step">
+                <div class="step-header">
+                    <h2>Live Proximity Calibration</h2>
+                    <p class="subtitle">Sit at your computer or walk 3 meters away to observe the live signal meter and set your ideal lock and unlock thresholds.</p>
+                </div>
+
+                <div class="calibration-display">
+                    <div class="signal-meter-card">
+                        <div class="meter-value">
+                            <span id="cal-rssi-value">-65.0</span>
+                            <span class="unit">dBm</span>
+                        </div>
+                        <div class="meter-bar-container">
+                            <div id="cal-meter-bar" class="meter-bar" style="width: 65%;"></div>
+                        </div>
+                        <div class="meter-stats">
+                            <span>Estimated Distance: <strong id="cal-dist-est">~1.5m</strong></span>
+                            <span>State: <strong id="cal-state-tag" class="tag-near">NEAR (In Range)</strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="threshold-controls card">
+                    <h3>Proximity Sensitivity Sliders</h3>
+                    
+                    <div class="slider-row">
+                        <div class="slider-info">
+                            <label for="slider-unlock">Unlock Threshold (Near Desk)</label>
+                            <span id="val-unlock-dbm">-62 dBm</span>
+                        </div>
+                        <input type="range" id="slider-unlock" min="-80" max="-45" value="-62" class="fluent-slider">
+                        <small>PC unlocks when you approach within this range.</small>
+                    </div>
+
+                    <div class="slider-row">
+                        <div class="slider-info">
+                            <label for="slider-lock">Lock Threshold (Away / Leave Desk)</label>
+                            <span id="val-lock-dbm">-82 dBm</span>
+                        </div>
+                        <input type="range" id="slider-lock" min="-95" max="-70" value="-82" class="fluent-slider">
+                        <small>PC locks automatically when signal drops below this strength.</small>
+                    </div>
+                </div>
+
+                <div class="step-footer">
+                    <button class="btn btn-secondary btn-prev" data-prev="2">⬅ Back</button>
+                    <button class="btn btn-primary btn-next" data-next="4">Next: Auto-Unlock Credentials ➔</button>
+                </div>
+            </section>
+
+            <!-- STEP 4: DPAPI CREDENTIAL VAULT -->
+            <section id="step-4" class="wizard-step">
+                <div class="step-header">
+                    <h2>Windows DPAPI Credential Vault</h2>
+                    <p class="subtitle">To seamlessly unlock Windows when your watch is in proximity, store your credentials protected with Windows Data Protection API (DPAPI).</p>
+                </div>
+
+                <div class="card">
+                    <div class="vault-info-banner">
+                        <span class="icon">🛡️</span>
+                        <div>
+                            <strong>Hardware-Grade OS Security:</strong> Credentials are encrypted with your personal Windows account key. No plaintext password is ever written to disk or sent over the network.
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="vault-domain">Domain / Workgroup</label>
+                        <input type="text" id="vault-domain" class="text-input" value=".">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="vault-username">Windows Username</label>
+                        <input type="text" id="vault-username" class="text-input" placeholder="e.g. Jorge">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="vault-password">Windows Password or PIN</label>
+                        <input type="password" id="vault-password" class="text-input" placeholder="Enter your current password">
+                    </div>
+
+                    <div class="vault-actions">
+                        <button id="btn-save-vault" class="btn btn-primary">Save to DPAPI Vault</button>
+                        <button id="btn-test-vault" class="btn btn-secondary">Verify Encryption</button>
+                    </div>
+                    <div id="vault-feedback" class="feedback-text"></div>
+                </div>
+
+                <div class="step-footer">
+                    <button class="btn btn-secondary btn-prev" data-prev="3">⬅ Back</button>
+                    <button class="btn btn-primary btn-next" data-next="5">Finish & Activate ➔</button>
+                </div>
+            </section>
+
+            <!-- STEP 5: DASHBOARD & ACTIVE STATUS -->
+            <section id="step-5" class="wizard-step">
+                <div class="step-header">
+                    <h2>Active Protection Dashboard</h2>
+                    <p class="subtitle">WristKey is actively monitoring your Apple Watch over Bluetooth Low Energy.</p>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="dash-card">
+                        <span class="dash-label">Protection Status</span>
+                        <div class="dash-val green">● Active</div>
+                        <small>Auto-lock & Auto-unlock enabled</small>
+                    </div>
+                    <div class="dash-card">
+                        <span class="dash-label">Smoothed Signal</span>
+                        <div id="dash-rssi" class="dash-val">-63 dBm</div>
+                        <small id="dash-dist">~1.3 meters</small>
+                    </div>
+                    <div class="dash-card">
+                        <span class="dash-label">On-Wrist Status</span>
+                        <div id="dash-wrist" class="dash-val green">Verified</div>
+                        <small>Continuity Action 0x0A active</small>
+                    </div>
+                    <div class="dash-card">
+                        <span class="dash-label">Session State</span>
+                        <div id="dash-session" class="dash-val">Unlocked</div>
+                        <small>Session active</small>
+                    </div>
+                </div>
+
+                <div class="card settings-card">
+                    <h3>Active Policies</h3>
+                    <div class="switch-row">
+                        <span>Lock Workstation when stepping away</span>
+                        <input type="checkbox" id="chk-auto-lock" checked class="fluent-switch">
+                    </div>
+                    <div class="switch-row">
+                        <span>Unlock Workstation on proximity approach</span>
+                        <input type="checkbox" id="chk-auto-unlock" checked class="fluent-switch">
+                    </div>
+                    <div class="switch-row">
+                        <span>Require Watch to be on wrist & unlocked</span>
+                        <input type="checkbox" id="chk-require-wrist" checked class="fluent-switch">
+                    </div>
+                </div>
+
+                <div class="step-footer">
+                    <button class="btn btn-secondary btn-prev" data-prev="4">⬅ Recalibrate</button>
+                    <button id="btn-save-all" class="btn btn-primary">Save All Settings</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -3,6 +3,7 @@ members = [
     "crates/wristkey-core",
     "crates/wristkey-cli",
     "crates/wristkey-credprov",
+    "crates/wristkey-ui",
 ]
 resolver = "2"
 
