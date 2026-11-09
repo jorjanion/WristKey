@@ -14,18 +14,29 @@ async function invoke(cmd, args = {}) {
 // Application State
 let currentStep = 1;
 let isScanning = true;
-let selectedMac = null;
-let unlockThreshold = -58;
-let lockThreshold = -74;
+let selectedMac = localStorage.getItem("wristkey_selected_mac") || null;
+let unlockThreshold = parseInt(localStorage.getItem("wristkey_unlock_thresh")) || -58;
+let lockThreshold = parseInt(localStorage.getItem("wristkey_lock_thresh")) || -74;
 let currentRssi = -58.0;
 let scanInterval = null;
+let isWorkstationLocked = false;
+let isSetupCompleted = localStorage.getItem("wristkey_setup_completed") === "true";
+let autoLockEnabled = localStorage.getItem("wristkey_auto_lock") !== "false";
+let autoUnlockEnabled = localStorage.getItem("wristkey_auto_unlock") !== "false";
+let requireWristEnabled = localStorage.getItem("wristkey_require_wrist") !== "false";
 
 document.addEventListener("DOMContentLoaded", () => {
     initNavigation();
     initScannerControls();
     initCalibrationSliders();
     initVaultHandlers();
+    initDashboardHandlers();
     initQuickLock();
+
+    // If configuration was previously completed, jump directly to the live Dashboard!
+    if (isSetupCompleted) {
+        goToStep(4);
+    }
 
     // Start live device polling and status updates immediately (instant startup)
     startLiveScannerPolling();
@@ -43,7 +54,7 @@ async function checkForUpdates() {
         });
         if (response.ok) {
             const release = await response.json();
-            const currentVersion = "0.4.11";
+            const currentVersion = "0.4.12";
             const tag = release.tag_name || "";
             const latestClean = tag.replace(/^v/, "");
 
@@ -262,6 +273,7 @@ function renderDiscoveredDevices(devices) {
                 item.classList.add("selected");
                 selectedMac = dev.mac;
                 currentRssi = dev.rssi;
+                localStorage.setItem("wristkey_selected_mac", selectedMac);
             });
         }
 
@@ -298,16 +310,22 @@ function initCalibrationSliders() {
     const valLock = document.getElementById("val-lock-dbm");
 
     if (sliderUnlock) {
+        sliderUnlock.value = unlockThreshold;
+        if (valUnlock) valUnlock.textContent = `${unlockThreshold} dBm`;
         sliderUnlock.addEventListener("input", (e) => {
             unlockThreshold = parseInt(e.target.value);
+            localStorage.setItem("wristkey_unlock_thresh", unlockThreshold);
             if (valUnlock) valUnlock.textContent = `${unlockThreshold} dBm`;
             updateThresholdMarkers();
         });
     }
 
     if (sliderLock) {
+        sliderLock.value = lockThreshold;
+        if (valLock) valLock.textContent = `${lockThreshold} dBm`;
         sliderLock.addEventListener("input", (e) => {
             lockThreshold = parseInt(e.target.value);
+            localStorage.setItem("wristkey_lock_thresh", lockThreshold);
             if (valLock) valLock.textContent = `${lockThreshold} dBm`;
             updateThresholdMarkers();
         });
@@ -356,6 +374,8 @@ function initVaultHandlers() {
 
             try {
                 await invoke("save_credentials", { domain, username, password });
+                localStorage.setItem("wristkey_setup_completed", "true");
+                isSetupCompleted = true;
                 vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Credenciales guardadas y cifradas con DPAPI en Windows.</span>`;
             } catch (err) {
                 vaultFeedback.innerHTML = `<span style="color: var(--danger)">${err}</span>`;
@@ -367,6 +387,8 @@ function initVaultHandlers() {
         btnTestVault.addEventListener("click", async () => {
             try {
                 const res = await invoke("test_vault");
+                localStorage.setItem("wristkey_setup_completed", "true");
+                isSetupCompleted = true;
                 vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Bóveda verificada correctamente: ${res.username} (${res.domain})</span>`;
             } catch (err) {
                 vaultFeedback.innerHTML = `<span style="color: var(--danger)">Error al leer bóveda: ${err}</span>`;
@@ -374,16 +396,85 @@ function initVaultHandlers() {
         });
     }
 
-    const btnSaveAll = document.getElementById("btn-save-all");
-    if (btnSaveAll) {
-        btnSaveAll.addEventListener("click", () => {
-            btnSaveAll.textContent = "✓ ¡Configuración guardada!";
-            btnSaveAll.style.background = "var(--success)";
-            setTimeout(() => {
-                btnSaveAll.textContent = "Guardar Configuración";
-                btnSaveAll.style.background = "";
-            }, 2500);
+    const btnFinish = document.querySelector('.btn-next[data-next="4"]');
+    if (btnFinish) {
+        btnFinish.addEventListener("click", () => {
+            localStorage.setItem("wristkey_setup_completed", "true");
+            isSetupCompleted = true;
         });
+    }
+}
+
+// Step 4: Dashboard Controls & Persistent Settings
+function initDashboardHandlers() {
+    const chkAutoLock = document.getElementById("chk-auto-lock");
+    const chkAutoUnlock = document.getElementById("chk-auto-unlock");
+    const chkRequireWrist = document.getElementById("chk-require-wrist");
+    const chkAutostart = document.getElementById("chk-autostart");
+
+    const btnLockNow = document.getElementById("btn-dash-lock-now");
+    const btnCalibrate = document.getElementById("btn-dash-calibrate");
+    const btnRescan = document.getElementById("btn-dash-rescan");
+    const btnReconfig = document.getElementById("btn-reconfig");
+
+    if (chkAutoLock) {
+        chkAutoLock.checked = autoLockEnabled;
+        chkAutoLock.addEventListener("change", (e) => {
+            autoLockEnabled = e.target.checked;
+            localStorage.setItem("wristkey_auto_lock", autoLockEnabled);
+        });
+    }
+
+    if (chkAutoUnlock) {
+        chkAutoUnlock.checked = autoUnlockEnabled;
+        chkAutoUnlock.addEventListener("change", (e) => {
+            autoUnlockEnabled = e.target.checked;
+            localStorage.setItem("wristkey_auto_unlock", autoUnlockEnabled);
+        });
+    }
+
+    if (chkRequireWrist) {
+        chkRequireWrist.checked = requireWristEnabled;
+        chkRequireWrist.addEventListener("change", (e) => {
+            requireWristEnabled = e.target.checked;
+            localStorage.setItem("wristkey_require_wrist", requireWristEnabled);
+        });
+    }
+
+    if (chkAutostart) {
+        invoke("get_autostart_enabled")
+            .then((enabled) => { chkAutostart.checked = enabled; })
+            .catch(() => {});
+
+        chkAutostart.addEventListener("change", async (e) => {
+            try {
+                await invoke("set_autostart_enabled", { enabled: e.target.checked });
+            } catch (err) {
+                console.error("Autostart error:", err);
+            }
+        });
+    }
+
+    if (btnLockNow) {
+        btnLockNow.addEventListener("click", async () => {
+            try {
+                await invoke("test_workstation_lock");
+            } catch (err) {
+                console.error("Lock error:", err);
+            }
+        });
+    }
+
+    if (btnCalibrate) {
+        btnCalibrate.addEventListener("click", () => goToStep(2));
+    }
+
+    if (btnRescan) {
+        btnRescan.addEventListener("click", () => goToStep(1));
+    }
+
+    if (btnReconfig) {
+        btnReconfig.addEventListener("click", () => goToStep(2));
     }
 }
 
@@ -418,6 +509,7 @@ function startLiveUpdates() {
 
                 if (reading.current_mac && reading.is_confirmed_watch) {
                     selectedMac = reading.current_mac;
+                    localStorage.setItem("wristkey_selected_mac", selectedMac);
                 }
 
                 // Update Calibration Meter
@@ -451,19 +543,67 @@ function startLiveUpdates() {
                     }
                 }
 
-                // Update Dashboard Values
-                const dashRssi = document.getElementById("dash-rssi");
-                const dashDist = document.getElementById("dash-dist");
-                const dashWrist = document.getElementById("dash-wrist");
-                if (dashRssi) dashRssi.textContent = `${reading.rssi.toFixed(1)} dBm`;
-                if (dashDist) dashDist.textContent = `~${reading.distance_meters.toFixed(1)} m`;
+                // Update Dashboard Live Proximity View
+                const dashName = document.getElementById("dash-device-name");
+                const dashMac = document.getElementById("dash-mac-pill");
+                const dashRssiLive = document.getElementById("dash-rssi-live");
+                const dashDistMeters = document.getElementById("dash-dist-meters");
+                const dashMeterBar = document.getElementById("dash-meter-bar");
+                const dashZonePill = document.getElementById("dash-zone-pill");
+                const dashLiveStatus = document.getElementById("dash-live-status-text");
+                const dashLockVal = document.getElementById("dash-lock-val");
+                const dashUnlockVal = document.getElementById("dash-unlock-val");
+                const dashLblLock = document.getElementById("dash-lbl-lock-thresh");
+                const dashLblUnlock = document.getElementById("dash-lbl-unlock-thresh");
+                const dashWrist = document.getElementById("dash-wrist-status");
+
+                if (dashName && reading.device_name) dashName.textContent = reading.device_name;
+                if (dashMac && reading.current_mac) dashMac.textContent = reading.current_mac;
+                if (dashRssiLive) dashRssiLive.textContent = reading.rssi.toFixed(1);
+                if (dashDistMeters) dashDistMeters.textContent = `~${reading.distance_meters.toFixed(1)} m`;
+                if (dashMeterBar) dashMeterBar.style.width = `${pct}%`;
+
+                if (dashLockVal) dashLockVal.textContent = `${lockThreshold} dBm`;
+                if (dashUnlockVal) dashUnlockVal.textContent = `${unlockThreshold} dBm`;
+                if (dashLblLock) dashLblLock.textContent = `${lockThreshold}`;
+                if (dashLblUnlock) dashLblUnlock.textContent = `${unlockThreshold}`;
+
+                const humanSig = getHumanSignal(reading.rssi);
+                if (dashZonePill) {
+                    dashZonePill.className = `proximity-tag ${humanSig.colorClass}`;
+                    dashZonePill.innerHTML = `<span>${humanSig.distance}</span>`;
+                }
+
                 if (dashWrist) {
                     if (reading.is_confirmed_watch && !reading.is_lost) {
-                        dashWrist.textContent = "En muñeca verificado";
+                        dashWrist.textContent = "En muñeca (Desbloqueado)";
                         dashWrist.className = "dash-val green";
                     } else {
                         dashWrist.textContent = "Buscando reloj...";
                         dashWrist.className = "dash-val";
+                    }
+                }
+
+                if (dashLiveStatus) {
+                    if (reading.is_lost || reading.rssi <= lockThreshold) {
+                        dashLiveStatus.textContent = "LEJOS (Zona de auto-bloqueo)";
+                        dashLiveStatus.style.color = "var(--danger)";
+                        if (dashMeterBar) dashMeterBar.style.background = "var(--danger)";
+
+                        // Execute auto-lock if user enabled it and we haven't locked yet
+                        if (autoLockEnabled && !isWorkstationLocked && reading.is_lost) {
+                            isWorkstationLocked = true;
+                            invoke("test_workstation_lock");
+                        }
+                    } else if (reading.rssi >= unlockThreshold) {
+                        dashLiveStatus.textContent = "CERCA (En tu escritorio / Desbloqueado)";
+                        dashLiveStatus.style.color = "var(--success)";
+                        if (dashMeterBar) dashMeterBar.style.background = "";
+                        isWorkstationLocked = false;
+                    } else {
+                        dashLiveStatus.textContent = "ZONA MEDIA (En la habitación)";
+                        dashLiveStatus.style.color = "var(--warning)";
+                        if (dashMeterBar) dashMeterBar.style.background = "";
                     }
                 }
             }

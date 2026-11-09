@@ -386,6 +386,72 @@ fn test_workstation_lock() -> Result<(), String> {
     lock_workstation().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_autostart_enabled() -> bool {
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        let mut cmd = Command::new("reg.exe");
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd
+            .args(&["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "WristKey"])
+            .output();
+        if let Ok(out) = output {
+            return out.status.success();
+        }
+    }
+    false
+}
+
+#[tauri::command]
+fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        if enabled {
+            if let Ok(exe_path) = std::env::current_exe() {
+                let path_str = exe_path.to_string_lossy().to_string();
+                let mut cmd = Command::new("reg.exe");
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                let status = cmd
+                    .args(&[
+                        "add",
+                        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                        "/v",
+                        "WristKey",
+                        "/t",
+                        "REG_SZ",
+                        "/d",
+                        &format!("\"{}\"", path_str),
+                        "/f",
+                    ])
+                    .status();
+                if let Ok(s) = status {
+                    if s.success() {
+                        return Ok(());
+                    }
+                }
+            }
+            return Err("No se pudo registrar en el inicio de Windows".to_string());
+        } else {
+            let mut cmd = Command::new("reg.exe");
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            let _ = cmd
+                .args(&[
+                    "delete",
+                    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                    "/v",
+                    "WristKey",
+                    "/f",
+                ])
+                .status();
+            return Ok(());
+        }
+    }
+    #[cfg(not(windows))]
+    Ok(())
+}
+
 fn start_background_scanner() {
     std::thread::spawn(|| {
         let mut scanner = BleScanner::new();
@@ -515,6 +581,8 @@ fn main() {
             save_credentials,
             test_vault,
             test_workstation_lock,
+            get_autostart_enabled,
+            set_autostart_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("error while running WristKey application");

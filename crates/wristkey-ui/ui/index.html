@@ -14,7 +14,7 @@
                 <div class="brand-icon">⌚</div>
                 <div class="brand-text">
                     <h1>WristKey</h1>
-                    <span class="version-tag">v0.4.11 Fluent</span>
+                    <span class="version-tag">v0.4.12 Fluent</span>
                 </div>
             </div>
 
@@ -212,53 +212,109 @@
 
             <!-- STEP 4: DASHBOARD & ACTIVE STATUS -->
             <section id="step-4" class="wizard-step">
-                <div class="step-header">
-                    <h2>Panel de Protección Activa</h2>
-                    <p class="subtitle">WristKey está monitorizando activamente tu Apple Watch para auto-bloqueo y desbloqueo.</p>
+                <div class="step-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <h2>Panel de Protección Activa</h2>
+                        <p class="subtitle">WristKey monitoriza en tiempo real tu Apple Watch para auto-bloqueo y desbloqueo seguro.</p>
+                    </div>
+                    <button id="btn-reconfig" class="btn btn-secondary btn-sm" style="width: auto;">⚙️ Modificar Configuración</button>
                 </div>
 
+                <!-- Main Live Proximity Card on Dashboard -->
+                <div class="card live-proximity-card" style="margin-bottom: 18px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="live-dot"></span>
+                            <strong id="dash-device-name" style="font-size: 15px;">Apple Watch</strong>
+                            <span id="dash-mac-pill" class="mac-pill">--:--:--:--:--:--</span>
+                        </div>
+                        <span id="dash-zone-pill" class="proximity-tag proximity-near">
+                            <span>Buscando señal...</span>
+                        </span>
+                    </div>
+
+                    <div style="display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px;">
+                        <div style="font-size: 38px; font-weight: 700; font-family: monospace; letter-spacing: -1px;">
+                            <span id="dash-rssi-live">-58.0</span> <span style="font-size: 16px; font-weight: 500; color: var(--text-secondary);">dBm</span>
+                        </div>
+                        <div style="font-size: 13.5px; color: var(--text-secondary);">
+                            Distancia estimada: <strong id="dash-dist-meters" style="color: var(--text-primary);">~0.8 m</strong>
+                        </div>
+                    </div>
+
+                    <!-- Visual Signal Bar in Dashboard -->
+                    <div class="meter-bar-container" style="margin: 14px 0 10px 0; height: 16px;">
+                        <div id="dash-meter-bar" class="meter-bar" style="width: 75%;"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-secondary);">
+                        <span>🔒 Zona de bloqueo (&lt; <span id="dash-lbl-lock-thresh">-74</span> dBm)</span>
+                        <span id="dash-live-status-text" style="font-weight: 600; color: var(--success);">CERCA (Escritorio / Desbloqueado)</span>
+                        <span>🔓 Zona de desbloqueo (&gt; <span id="dash-lbl-unlock-thresh">-58</span> dBm)</span>
+                    </div>
+                </div>
+
+                <!-- Metrics Grid -->
                 <div class="dashboard-grid">
                     <div class="dash-card">
                         <span class="dash-label">Estado de Protección</span>
-                        <div class="dash-val green">● Activo</div>
-                        <small>Auto-bloqueo y desbloqueo activos</small>
-                    </div>
-                    <div class="dash-card">
-                        <span class="dash-label">Señal Suavizada</span>
-                        <div id="dash-rssi" class="dash-val">-60 dBm</div>
-                        <small id="dash-dist">~1.0 metros</small>
+                        <div id="dash-motor-status" class="dash-val green">● Activo</div>
+                        <small>Monitorizando señal continuamente</small>
                     </div>
                     <div class="dash-card">
                         <span class="dash-label">Detección en Muñeca</span>
-                        <div id="dash-wrist" class="dash-val green">En muñeca</div>
-                        <small>Apple Watch verificado</small>
+                        <div id="dash-wrist-status" class="dash-val green">En muñeca (Desbloqueado)</div>
+                        <small>Seguridad óptica verificada</small>
                     </div>
                     <div class="dash-card">
-                        <span class="dash-label">Sesión de Windows</span>
-                        <div id="dash-session" class="dash-val">Desbloqueada</div>
-                        <small>Sesión activa</small>
+                        <span class="dash-label">Sensibilidad de Bloqueo</span>
+                        <div id="dash-lock-val" class="dash-val">-74 dBm</div>
+                        <small>Al alejarte a ~2.5 metros</small>
+                    </div>
+                    <div class="dash-card">
+                        <span class="dash-label">Sensibilidad de Desbloqueo</span>
+                        <div id="dash-unlock-val" class="dash-val">-58 dBm</div>
+                        <small>Al sentarte en el escritorio (~1 m)</small>
                     </div>
                 </div>
 
+                <!-- Security Options & Switches Card -->
                 <div class="card settings-card">
-                    <h3>Políticas de Seguridad Activas</h3>
+                    <h3 style="font-size: 14.5px; font-weight: 600; margin-bottom: 10px;">Opciones de Seguridad y Comportamiento</h3>
                     <div class="switch-row">
-                        <span>Bloquear equipo al alejarte</span>
+                        <div>
+                            <strong>Bloquear equipo automáticamente al alejarte</strong>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Bloquea Windows cuando sales del escritorio o de la habitación.</div>
+                        </div>
                         <input type="checkbox" id="chk-auto-lock" checked class="fluent-switch">
                     </div>
                     <div class="switch-row">
-                        <span>Desbloquear equipo por proximidad</span>
+                        <div>
+                            <strong>Desbloquear automáticamente al acercarte</strong>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Despierta la pantalla y desbloquea con tus credenciales cifradas al sentarte.</div>
+                        </div>
                         <input type="checkbox" id="chk-auto-unlock" checked class="fluent-switch">
                     </div>
                     <div class="switch-row">
-                        <span>Exigir reloj puesto en muñeca y desbloqueado</span>
+                        <div>
+                            <strong>Exigir reloj colocado en la muñeca</strong>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Bloquea inmediatamente si te quitas el reloj o si queda con código bloqueado.</div>
+                        </div>
                         <input type="checkbox" id="chk-require-wrist" checked class="fluent-switch">
+                    </div>
+                    <div class="switch-row" style="border-bottom: none;">
+                        <div>
+                            <strong>Iniciar WristKey automáticamente con Windows</strong>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Protección activa desde que enciendes o reinicias tu ordenador.</div>
+                        </div>
+                        <input type="checkbox" id="chk-autostart" class="fluent-switch">
                     </div>
                 </div>
 
-                <div class="step-footer">
-                    <button class="btn btn-secondary btn-prev" data-prev="2">⬅ Recalibrar</button>
-                    <button id="btn-save-all" class="btn btn-primary">Guardar Configuración</button>
+                <!-- Quick Action Buttons -->
+                <div style="display: flex; gap: 12px; margin-top: 6px; margin-bottom: 12px;">
+                    <button id="btn-dash-lock-now" class="btn btn-secondary" style="flex: 1;">🔒 Probar Bloqueo (user32)</button>
+                    <button id="btn-dash-calibrate" class="btn btn-secondary" style="flex: 1;">⚡ Calibrar Umbrales</button>
+                    <button id="btn-dash-rescan" class="btn btn-secondary" style="flex: 1;">🔄 Buscar otro reloj</button>
                 </div>
             </section>
         </main>
