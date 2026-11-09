@@ -70,8 +70,9 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
         lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 12);
 
         for entry in lock.values() {
-            // ONLY return Apple Watches detected on wrist
-            if entry.device.on_wrist {
+            // ONLY return Apple Watches detected on wrist in desk/room proximity (RSSI >= -76 dBm)
+            // Distant devices from other rooms (e.g. father's watch in another room at -81 dBm) are excluded.
+            if entry.device.on_wrist && entry.device.rssi >= -76 {
                 let mut dev = entry.device.clone();
                 dev.last_seen_ms_ago = now.duration_since(entry.last_seen).as_millis() as u64;
                 results.push(dev);
@@ -89,8 +90,7 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
     });
 
     // The user explicitly requires that ONLY their Apple Watch appear in the scan:
-    // If multiple watches exist in the house (e.g. user's watch at desk, father's watch in adjacent room),
-    // strictly isolate the user's Apple Watch (the closest one at the desk).
+    // Strictly isolate the user's Apple Watch (the closest one at the desk).
     if !results.is_empty() {
         results.truncate(1);
     }
@@ -419,24 +419,13 @@ fn start_background_scanner() {
 
                         if let Ok(mut lock) = DEVICES.lock() {
                             let was_already_watch = lock.get(&mac_str).map_or(false, |e| e.device.is_confirmed_watch);
-                            let is_confirmed_watch = was_already_watch || frame.is_confirmed_apple_watch();
-
-                            // If watch was locked or taken off wrist, mark it off-wrist.
-                            // If not locked and frame indicates on wrist (or was already confirmed on wrist):
                             let is_on_wrist = !frame.is_locked && (frame.is_on_wrist || was_already_watch);
+                            let is_confirmed_watch = was_already_watch || frame.is_confirmed_apple_watch() || is_on_wrist;
 
-                            let name = if is_confirmed_watch {
-                                if is_on_wrist {
-                                    "Apple Watch (En tu muñeca y desbloqueado)".to_string()
-                                } else {
-                                    "Apple Watch (Bloqueado / Fuera de muñeca)".to_string()
-                                }
+                            let name = if is_on_wrist {
+                                "Apple Watch (En tu muñeca y desbloqueado)".to_string()
                             } else {
-                                if is_on_wrist {
-                                    "Apple Watch (Detectado en escritorio)".to_string()
-                                } else {
-                                    "Apple Watch (Bloqueado)".to_string()
-                                }
+                                "Apple Watch (Bloqueado / Fuera de muñeca)".to_string()
                             };
 
                             let frame_desc = format!("{} (0x{:02X})", frame.message_type_name, frame.message_type);
