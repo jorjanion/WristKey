@@ -1,5 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -48,6 +54,7 @@ pub struct UpdateInfo {
 struct DeviceEntry {
     device: DiscoveredDeviceDto,
     last_seen: Instant,
+    smoothed_rssi_f32: f32,
 }
 
 static DEVICES: std::sync::LazyLock<Arc<Mutex<HashMap<String, DeviceEntry>>>> =
@@ -63,20 +70,28 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
         lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 12);
 
         for entry in lock.values() {
-            let mut dev = entry.device.clone();
-            dev.last_seen_ms_ago = now.duration_since(entry.last_seen).as_millis() as u64;
-            results.push(dev);
+            // ONLY return confirmed Apple Watches detected on wrist
+            if entry.device.is_confirmed_watch && entry.device.on_wrist {
+                let mut dev = entry.device.clone();
+                dev.last_seen_ms_ago = now.duration_since(entry.last_seen).as_millis() as u64;
+                results.push(dev);
+            }
         }
     }
 
-    // Sort order:
-    // 1. Confirmed Apple Watches FIRST (sorted by RSSI descending)
-    // 2. Other Apple devices SECOND (sorted by RSSI descending)
-    results.sort_by(|a, b| {
-        b.is_confirmed_watch
-            .cmp(&a.is_confirmed_watch)
-            .then_with(|| b.rssi.cmp(&a.rssi))
-    });
+    // Sort order: Closest Apple Watch first (highest RSSI)
+    results.sort_by(|a, b| b.rssi.cmp(&a.rssi));
+
+    // If an Apple Watch is detected in close proximity (RSSI >= -75 dBm),
+    // prune distant watches (e.g. RSSI < -80 dBm or > 12 dBm weaker than the nearby watch)
+    // so ONLY the user's Apple Watch appears in discovery.
+    if let Some(closest) = results.first() {
+        if closest.rssi >= -75 {
+            let cutoff = closest.rssi - 12;
+            results.retain(|d| d.rssi >= cutoff && d.rssi > -80);
+        }
+    }
+
     results
 }
 
@@ -85,44 +100,47 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
     let now = Instant::now();
     if let Ok(lock) = DEVICES.lock() {
         // Find the target to monitor:
-        // If a specific MAC is given, monitor THAT device without hopping around!
+        // Prioritize tracking the specified MAC if present.
+        // If not found or not provided, pick the closest confirmed Apple Watch on wrist.
         let target = if let Some(ref m) = mac {
             lock.get(m).or_else(|| {
-                // Only if the specific MAC does not exist at all, pick the closest confirmed watch
-                let mut watches: Vec<_> = lock.values().filter(|e| e.device.is_confirmed_watch).collect();
+                let mut watches: Vec<_> = lock
+                    .values()
+                    .filter(|e| e.device.is_confirmed_watch && e.device.on_wrist)
+                    .collect();
                 watches.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
                 watches.first().copied()
             })
         } else {
-            let mut watches: Vec<_> = lock.values().filter(|e| e.device.is_confirmed_watch).collect();
+            let mut watches: Vec<_> = lock
+                .values()
+                .filter(|e| e.device.is_confirmed_watch && e.device.on_wrist)
+                .collect();
             watches.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
-            watches.first().copied().or_else(|| {
-                let mut all: Vec<_> = lock.values().collect();
-                all.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
-                all.first().copied()
-            })
+            watches.first().copied()
         };
 
         if let Some(entry) = target {
             let elapsed_secs = now.duration_since(entry.last_seen).as_secs_f32();
 
             // NATURAL SIGNAL RETENTION & SMOOTH OUT-OF-RANGE TRANSITION:
-            // 0s to 4.5s: Normal BLE advertisement interval. Signal is STABLE at measured RSSI.
-            // 4.5s to 9.0s: User has walked out of range / packets dropped. Signal gently fades towards -88 dBm.
-            // > 9.0s: Completely lost / disconnected.
-            let effective_rssi = if elapsed_secs > 4.5 {
-                let fade = (elapsed_secs - 4.5) * 5.0; // Fades at 5 dBm per second after 4.5s
-                (entry.device.rssi as f32 - fade).max(-88.0)
+            // 0s to 4.0s: Normal BLE advertisement interval on wrist. Signal is 100% STABLE at smoothed value.
+            // 4.0s to 8.5s: User walking out of range / packets dropped. Gentle smooth linear decay.
+            // > 8.5s: Completely lost / disconnected.
+            let effective_rssi = if elapsed_secs > 4.0 {
+                let fade = (elapsed_secs - 4.0) * 3.5;
+                (entry.smoothed_rssi_f32 - fade).max(-88.0)
             } else {
-                entry.device.rssi as f32
+                entry.smoothed_rssi_f32
             };
 
-            // Distance estimation (path loss model with desk anchor)
-            let ratio = (-48.0 - effective_rssi) / (10.0 * 2.2);
-            let distance_meters = (10.0_f32).powf(ratio).clamp(0.2, 8.0);
+            // Accurate Log-Distance Path Loss Model:
+            // Reference at 1m is -58.0 dBm for Apple Watch on wrist; path loss exponent n = 2.4.
+            let ratio = (-58.0 - effective_rssi) / (10.0 * 2.4);
+            let distance_meters = (10.0_f32).powf(ratio).clamp(0.3, 8.0);
 
-            let is_lost = elapsed_secs > 7.0 || effective_rssi <= -80.0;
-            let is_near = effective_rssi >= -58.0 && !is_lost;
+            let is_lost = elapsed_secs > 8.5 || effective_rssi <= -80.0;
+            let is_near = effective_rssi >= -60.0 && !is_lost;
 
             let status_text = if is_lost {
                 "LEJOS / SIN SEÑAL (Zona de bloqueo)".to_string()
@@ -151,7 +169,7 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
 
     ProximityReadingDto {
         current_mac: "".to_string(),
-        device_name: "Buscando reloj...".to_string(),
+        device_name: "Buscando tu Apple Watch...".to_string(),
         is_confirmed_watch: false,
         rssi: -88.0,
         smoothed_rssi: -88.0,
@@ -159,7 +177,7 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
         is_near: false,
         is_lost: true,
         seconds_since_last_packet: 10.0,
-        status_text: "SIN SEÑAL (Coloca tu reloj cerca)".to_string(),
+        status_text: "SIN SEÑAL (Coloca tu reloj en la muñeca)".to_string(),
     }
 }
 
@@ -186,7 +204,11 @@ fn relaunch_as_admin() -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe_str = current_exe.to_string_lossy().to_string();
 
-    let status = std::process::Command::new("powershell.exe")
+    let mut cmd = std::process::Command::new("powershell.exe");
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let status = cmd
         .args(&[
             "-WindowStyle",
             "Hidden",
@@ -204,63 +226,73 @@ fn relaunch_as_admin() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn check_for_updates() -> Result<Option<UpdateInfo>, String> {
-    let current_version = env!("CARGO_PKG_VERSION");
+async fn check_for_updates() -> Result<Option<UpdateInfo>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let current_version = env!("CARGO_PKG_VERSION");
 
-    let output = std::process::Command::new("curl.exe")
-        .args(&[
-            "-s",
-            "-H",
-            "User-Agent: WristKey",
-            "https://api.github.com/repos/jorjanion/WristKey/releases/latest",
-        ])
-        .output()
-        .map_err(|e| format!("Failed to check for updates: {}", e))?;
+        let mut cmd = std::process::Command::new("curl.exe");
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
 
-    if !output.status.success() {
-        return Ok(None);
-    }
+        let output = cmd
+            .args(&[
+                "-s",
+                "-H",
+                "User-Agent: WristKey",
+                "--max-time",
+                "4",
+                "https://api.github.com/repos/jorjanion/WristKey/releases/latest",
+            ])
+            .output()
+            .map_err(|e| format!("Failed to check for updates: {}", e))?;
 
-    let body = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(_) => return Ok(None),
-    };
+        if !output.status.success() {
+            return Ok(None);
+        }
 
-    let tag = json.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
-    let latest_clean = tag.trim_start_matches('v');
+        let body = String::from_utf8_lossy(&output.stdout);
+        let json: serde_json::Value = match serde_json::from_str(&body) {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        };
 
-    if !latest_clean.is_empty() && latest_clean != current_version {
-        let mut download_url = json
-            .get("html_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let tag = json.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
+        let latest_clean = tag.trim_start_matches('v');
 
-        if let Some(assets) = json.get("assets").and_then(|v| v.as_array()) {
-            for asset in assets {
-                if let Some(name) = asset.get("name").and_then(|v| v.as_str()) {
-                    if name.ends_with(".exe") {
-                        if let Some(url) = asset.get("browser_download_url").and_then(|v| v.as_str()) {
-                            download_url = url.to_string();
-                            break;
+        if !latest_clean.is_empty() && latest_clean != current_version {
+            let mut download_url = json
+                .get("html_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            if let Some(assets) = json.get("assets").and_then(|v| v.as_array()) {
+                for asset in assets {
+                    if let Some(name) = asset.get("name").and_then(|v| v.as_str()) {
+                        if name.ends_with(".exe") {
+                            if let Some(url) = asset.get("browser_download_url").and_then(|v| v.as_str()) {
+                                download_url = url.to_string();
+                                break;
+                            }
                         }
                     }
                 }
             }
+
+            let notes = json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+            return Ok(Some(UpdateInfo {
+                current_version: current_version.to_string(),
+                latest_version: tag.to_string(),
+                download_url,
+                release_notes: notes,
+            }));
         }
 
-        let notes = json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-        return Ok(Some(UpdateInfo {
-            current_version: current_version.to_string(),
-            latest_version: tag.to_string(),
-            download_url,
-            release_notes: notes,
-        }));
-    }
-
-    Ok(None)
+        Ok(None)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -270,13 +302,20 @@ fn download_and_install_update(download_url: String) -> Result<(), String> {
         let target_exe = temp_dir.join("WristKey-Update.exe");
         let target_path = target_exe.to_string_lossy().to_string();
 
-        let status = std::process::Command::new("curl.exe")
+        let mut cmd = std::process::Command::new("curl.exe");
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let status = cmd
             .args(&["-L", "-s", "-o", &target_path, &download_url])
             .status();
 
         if let Ok(s) = status {
             if s.success() {
-                let _ = std::process::Command::new(&target_exe).spawn();
+                let mut run_cmd = std::process::Command::new(&target_exe);
+                #[cfg(windows)]
+                run_cmd.creation_flags(CREATE_NO_WINDOW);
+                let _ = run_cmd.spawn();
                 std::process::exit(0);
             }
         }
@@ -323,7 +362,7 @@ fn start_background_scanner() {
                 log::info!("Live WinRT BLE scanner started for UI");
                 while let Ok(event) = rx.recv() {
                     if let Some(frame) = event.apple_frame {
-                        // STRICT FILTER: Only accept Apple Watch candidates (Nearby Info 0x10)
+                        // Only Nearby Info frames (0x10) carry Apple Watch on-wrist telemetry
                         if frame.message_type != 0x10 {
                             continue;
                         }
@@ -338,44 +377,72 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
+                        let is_on_wrist_frame = frame.action_code == Some(wristkey_core::continuity::ACTION_WATCH_ON_WRIST_UNLOCKED)
+                            || frame.is_on_wrist_and_unlocked
+                            || frame.is_on_wrist;
+
                         if let Ok(mut lock) = DEVICES.lock() {
                             let was_already_watch = lock.get(&mac_str).map_or(false, |e| e.device.is_confirmed_watch);
-                            let is_confirmed_watch = was_already_watch || frame.is_apple_watch();
-                            let device_type = if is_confirmed_watch {
-                                "apple_watch".to_string()
-                            } else {
-                                "apple_device".to_string()
-                            };
+
+                            // STRICT NOISE FILTER:
+                            // If this frame is NOT an on-wrist frame AND this MAC was not previously confirmed as an on-wrist watch,
+                            // DROP IT COMPLETELY! This filters out iPhones, iPads, MacBooks, AirPods, and non-wrist devices.
+                            if !is_on_wrist_frame && !was_already_watch {
+                                continue;
+                            }
+
+                            let is_confirmed_watch = true;
+                            let is_on_wrist = is_on_wrist_frame || was_already_watch;
 
                             let name = if frame.is_on_wrist_and_unlocked {
-                                "Apple Watch (En muñeca y desbloqueado)".to_string()
+                                "Apple Watch (En tu muñeca y desbloqueado)".to_string()
                             } else if frame.is_on_wrist {
-                                "Apple Watch (En muñeca, bloqueado)".to_string()
-                            } else if is_confirmed_watch {
-                                "Apple Watch".to_string()
+                                "Apple Watch (En tu muñeca)".to_string()
                             } else {
-                                "iPhone / iPad (Continuity)".to_string()
+                                "Apple Watch (En reposo)".to_string()
                             };
 
-                            let smoothed_rssi = if let Some(existing) = lock.get(&mac_str) {
-                                let diff = (event.rssi - existing.device.rssi).abs();
-                                // Responsive dynamic smoothing: if moving (diff >= 3 dBm), take 70% of new reading immediately
-                                let alpha = if diff >= 3 { 0.70 } else { 0.40 };
-                                ((existing.device.rssi as f32 * (1.0 - alpha)) + (event.rssi as f32 * alpha)).round() as i16
+                            // HIGH-PRECISION ADAPTIVE RSSI SMOOTHING:
+                            let raw_f = event.rssi as f32;
+                            let smoothed_rssi_f32 = if let Some(existing) = lock.get(&mac_str) {
+                                let prev = existing.smoothed_rssi_f32;
+                                let diff = (raw_f - prev).abs();
+
+                                // Outlier clamp for physical sanity (> 25 dB spikes due to RF collision)
+                                let clamped_raw = if (raw_f - prev) > 25.0 {
+                                    prev + 25.0
+                                } else if (prev - raw_f) > 25.0 {
+                                    prev - 25.0
+                                } else {
+                                    raw_f
+                                };
+
+                                // Small RF noise (< 6 dBm): Alpha = 0.18 -> rock-solid steady reading
+                                // Medium movement (6-12 dBm): Alpha = 0.35 -> smooth transition
+                                // Large movement (>= 12 dBm): Alpha = 0.55 -> rapid tracking
+                                let alpha = if diff < 6.0 {
+                                    0.18
+                                } else if diff < 12.0 {
+                                    0.35
+                                } else {
+                                    0.55
+                                };
+
+                                (prev * (1.0 - alpha)) + (clamped_raw * alpha)
                             } else {
-                                event.rssi
+                                raw_f
                             };
 
                             let dto = DiscoveredDeviceDto {
                                 mac: mac_str.clone(),
                                 name,
-                                rssi: smoothed_rssi,
-                                on_wrist: frame.is_on_wrist || is_confirmed_watch,
+                                rssi: smoothed_rssi_f32.round() as i16,
+                                on_wrist: is_on_wrist,
                                 is_unlocked: !frame.is_locked,
                                 frame_type: "Nearby Info (0x10)".to_string(),
-                                is_watch_candidate: is_confirmed_watch,
+                                is_watch_candidate: true,
                                 is_confirmed_watch,
-                                device_type,
+                                device_type: "apple_watch".to_string(),
                                 last_seen_ms_ago: 0,
                             };
 
@@ -384,6 +451,7 @@ fn start_background_scanner() {
                                 DeviceEntry {
                                     device: dto,
                                     last_seen: Instant::now(),
+                                    smoothed_rssi_f32,
                                 },
                             );
                         }
@@ -419,3 +487,122 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running WristKey application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_device_filtering_and_closest_watch_isolation() {
+        if let Ok(mut lock) = DEVICES.lock() {
+            lock.clear();
+
+            // 1. User's Apple Watch SE on wrist right at desk (-54 dBm)
+            lock.insert(
+                "AA:BB:CC:DD:EE:01".to_string(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: "AA:BB:CC:DD:EE:01".to_string(),
+                        name: "Apple Watch (En tu muñeca y desbloqueado)".to_string(),
+                        rssi: -54,
+                        on_wrist: true,
+                        is_unlocked: true,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: true,
+                        is_confirmed_watch: true,
+                        device_type: "apple_watch".to_string(),
+                        last_seen_ms_ago: 0,
+                    },
+                    last_seen: Instant::now(),
+                    smoothed_rssi_f32: -54.0,
+                },
+            );
+
+            // 2. Father's Apple Watch in adjacent room (-85 dBm)
+            lock.insert(
+                "AA:BB:CC:DD:EE:02".to_string(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: "AA:BB:CC:DD:EE:02".to_string(),
+                        name: "Apple Watch (En tu muñeca y desbloqueado)".to_string(),
+                        rssi: -85,
+                        on_wrist: true,
+                        is_unlocked: true,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: true,
+                        is_confirmed_watch: true,
+                        device_type: "apple_watch".to_string(),
+                        last_seen_ms_ago: 0,
+                    },
+                    last_seen: Instant::now(),
+                    smoothed_rssi_f32: -85.0,
+                },
+            );
+
+            // 3. Noise device: non-wrist device (e.g. iPhone)
+            lock.insert(
+                "AA:BB:CC:DD:EE:03".to_string(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: "AA:BB:CC:DD:EE:03".to_string(),
+                        name: "iPhone (Continuity)".to_string(),
+                        rssi: -45,
+                        on_wrist: false,
+                        is_unlocked: true,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: false,
+                        is_confirmed_watch: false,
+                        device_type: "apple_device".to_string(),
+                        last_seen_ms_ago: 0,
+                    },
+                    last_seen: Instant::now(),
+                    smoothed_rssi_f32: -45.0,
+                },
+            );
+        }
+
+        let discovered = get_discovered_devices();
+
+        // Must ONLY return 1 device: the user's Apple Watch!
+        // The non-wrist device is filtered out, and the distant father's watch is pruned.
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].mac, "AA:BB:CC:DD:EE:01");
+        assert!(discovered[0].on_wrist);
+        assert!(discovered[0].is_confirmed_watch);
+    }
+
+    #[test]
+    fn test_live_proximity_steady_signal_and_distance() {
+        let mac = "AA:BB:CC:DD:EE:99".to_string();
+        if let Ok(mut lock) = DEVICES.lock() {
+            lock.clear();
+            lock.insert(
+                mac.clone(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: mac.clone(),
+                        name: "Apple Watch (En tu muñeca)".to_string(),
+                        rssi: -58,
+                        on_wrist: true,
+                        is_unlocked: true,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: true,
+                        is_confirmed_watch: true,
+                        device_type: "apple_watch".to_string(),
+                        last_seen_ms_ago: 0,
+                    },
+                    last_seen: Instant::now(),
+                    smoothed_rssi_f32: -58.0,
+                },
+            );
+        }
+
+        let reading = get_live_proximity(Some(mac));
+        assert_eq!(reading.is_confirmed_watch, true);
+        assert!((reading.rssi - (-58.0)).abs() < 0.01);
+        assert!((reading.distance_meters - 1.0).abs() < 0.1);
+        assert!(reading.is_near);
+        assert!(!reading.is_lost);
+    }
+}
+

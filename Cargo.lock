@@ -4358,7 +4358,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wristkey-cli"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "clap",
  "colored",
@@ -4369,7 +4369,7 @@ dependencies = [
 
 [[package]]
 name = "wristkey-core"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "aes",
  "cipher",
@@ -4383,7 +4383,7 @@ dependencies = [
 
 [[package]]
 name = "wristkey-credprov"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "log",
  "windows",
@@ -4392,7 +4392,7 @@ dependencies = [
 
 [[package]]
 name = "wristkey-ui"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "env_logger",
  "log",

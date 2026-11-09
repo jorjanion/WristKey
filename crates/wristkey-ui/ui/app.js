@@ -15,7 +15,6 @@ async function invoke(cmd, args = {}) {
 let currentStep = 1;
 let isScanning = true;
 let selectedMac = null;
-let configuredIrk = "";
 let unlockThreshold = -58;
 let lockThreshold = -74;
 let currentRssi = -58.0;
@@ -28,15 +27,15 @@ document.addEventListener("DOMContentLoaded", () => {
     initVaultHandlers();
     initQuickLock();
 
-    // Check for updates on startup
-    checkForUpdates();
-
-    // Start live device polling and status updates
+    // Start live device polling and status updates immediately (instant startup)
     startLiveScannerPolling();
     startLiveUpdates();
+
+    // Check for updates silently in the background 3 seconds after launch
+    setTimeout(checkForUpdates, 3000);
 });
 
-// Auto-Updater
+// Auto-Updater (Silently checks GitHub releases without flashing CMD or blocking startup)
 async function checkForUpdates() {
     try {
         const update = await invoke("check_for_updates");
@@ -78,10 +77,10 @@ function showUpdateBanner(update) {
 
 // Convert raw dBm into everyday human-readable proximity
 function getHumanSignal(rssi) {
-    if (rssi >= -50) {
+    if (rssi >= -52) {
         return {
             distance: "Al lado del PC (< 0.5 m)",
-            quality: "Señal excelente",
+            quality: "Señal óptima",
             colorClass: "proximity-very-near",
             bars: "📶 Fuerte"
         };
@@ -92,7 +91,7 @@ function getHumanSignal(rssi) {
             colorClass: "proximity-near",
             bars: "📶 Buena"
         };
-    } else if (rssi >= -78) {
+    } else if (rssi >= -76) {
         return {
             distance: "En la habitación (~2-3 m)",
             quality: "Señal media",
@@ -109,7 +108,7 @@ function getHumanSignal(rssi) {
     }
 }
 
-// Step Navigation
+// Step Navigation (Streamlined 4-Step Wizard)
 function initNavigation() {
     const navItems = document.querySelectorAll(".nav-item");
     const nextButtons = document.querySelectorAll(".btn-next");
@@ -149,7 +148,7 @@ function goToStep(step) {
     if (targetNav) targetNav.classList.add("active");
 }
 
-// Scanner & Discovery
+// Step 1: Scanner & Discovery
 function initScannerControls() {
     const btnToggle = document.getElementById("btn-toggle-scan");
     const scanStatusText = document.getElementById("scan-status-text");
@@ -159,7 +158,7 @@ function initScannerControls() {
         if (isScanning) {
             btnToggle.textContent = "Buscando...";
             btnToggle.classList.replace("btn-secondary", "btn-primary");
-            scanStatusText.textContent = "Escuchando emisiones Bluetooth de Apple Watches";
+            scanStatusText.textContent = "Escuchando emisiones Bluetooth de tu Apple Watch en muñeca";
             document.querySelector(".radar-sweep").style.display = "block";
         } else {
             btnToggle.textContent = "Reanudar búsqueda";
@@ -181,7 +180,7 @@ function startLiveScannerPolling() {
         } catch (_) {
             // Scanner starting or web fallback
         }
-    }, 800);
+    }, 700);
 }
 
 function renderDiscoveredDevices(devices) {
@@ -191,22 +190,23 @@ function renderDiscoveredDevices(devices) {
     if (!devices || devices.length === 0) {
         list.innerHTML = `
             <div class="empty-state">
-                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px;">Buscando tu Apple Watch...</div>
+                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px;">Buscando tu Apple Watch en tu muñeca...</div>
                 <div style="font-size: 12px; color: var(--text-secondary); max-width: 440px; margin: 0 auto; line-height: 1.6;">
-                    Coloca tu reloj cerca del ordenador o en tu muñeca. Toca la pantalla para que emita señal Bluetooth.
+                    Ponte el reloj en la muñeca y desbloquéalo (o toca la pantalla). WristKey filtra automáticamente cualquier otro teléfono o dispositivo de la casa.
                 </div>
             </div>
         `;
         return;
     }
 
-    // STRICT SORT: Confirmed Apple Watches FIRST, then by RSSI descending
-    devices.sort((a, b) => {
-        if (b.is_confirmed_watch !== a.is_confirmed_watch) {
-            return b.is_confirmed_watch ? 1 : -1;
-        }
-        return b.rssi - a.rssi;
-    });
+    // Sort: highest RSSI first
+    devices.sort((a, b) => b.rssi - a.rssi);
+
+    // Auto-select the strongest watch (user's watch at desk) if none selected
+    if (!selectedMac || !devices.some(d => d.mac === selectedMac)) {
+        selectedMac = devices[0].mac;
+        currentRssi = devices[0].rssi;
+    }
 
     // Remove any items that are no longer active
     const activeMacs = new Set(devices.map(d => d.mac));
@@ -220,18 +220,9 @@ function renderDiscoveredDevices(devices) {
     const empty = list.querySelector(".empty-state");
     if (empty) empty.remove();
 
-    // Auto-select the first confirmed Apple Watch (or first device if none)
-    if (!selectedMac) {
-        const firstWatch = devices.find(d => d.is_confirmed_watch) || devices[0];
-        if (firstWatch) {
-            selectedMac = firstWatch.mac;
-            currentRssi = firstWatch.rssi;
-        }
-    }
-
     devices.forEach((dev, idx) => {
         const signal = getHumanSignal(dev.rssi);
-        const isClosestWatch = dev.is_confirmed_watch && (idx === 0 || !devices.slice(0, idx).some(d => d.is_confirmed_watch));
+        const isClosestWatch = idx === 0;
 
         let item = list.querySelector(`.device-item[data-mac="${dev.mac}"]`);
         if (!item) {
@@ -248,16 +239,15 @@ function renderDiscoveredDevices(devices) {
         const isSelected = selectedMac === dev.mac;
         item.className = `device-item ${isSelected ? "selected" : ""} ${isClosestWatch ? "is-closest" : ""}`;
 
-        const badgeClass = dev.is_confirmed_watch ? "badge-watch" : "badge-apple-device";
-        const closestStar = isClosestWatch ? '<span class="badge-closest">⭐ TU RELOJ MÁS CERCANO</span>' : '';
+        const closestBadge = isClosestWatch ? '<span class="badge-closest">⭐ TU APPLE WATCH</span>' : '';
 
         item.innerHTML = `
             <div>
-                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px;">
-                    <span class="${badgeClass}">${dev.name}</span>
-                    ${closestStar}
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                    <span class="badge-watch">⌚ ${dev.name}</span>
+                    ${closestBadge}
                 </div>
-                <div style="font-size: 11.5px; color: var(--text-secondary); font-family: monospace;">${dev.mac}</div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); font-family: monospace;">${dev.mac} · Detectado en muñeca</div>
             </div>
             <div style="text-align: right;">
                 <div class="proximity-tag ${signal.colorClass}">
@@ -267,116 +257,11 @@ function renderDiscoveredDevices(devices) {
             </div>
         `;
 
-        // appendChild maintains strict proximity order
         list.appendChild(item);
     });
 }
 
-// Step 2: IRK Pairing & Admin Elevation
-const btnImportReg = document.getElementById("btn-import-registry");
-const regResults = document.getElementById("registry-results");
-const inputIrk = document.getElementById("input-irk");
-const btnVerifyIrk = document.getElementById("btn-verify-irk");
-const irkFeedback = document.getElementById("irk-verification-feedback");
-
-if (btnImportReg) {
-    btnImportReg.addEventListener("click", async () => {
-        btnImportReg.textContent = "Consultando registro de Windows...";
-        try {
-            const isAdmin = await invoke("is_running_as_admin");
-            if (!isAdmin) {
-                regResults.innerHTML = `
-                    <div style="background: rgba(96, 205, 255, 0.08); border: 1px solid rgba(96, 205, 255, 0.35); padding: 14px; border-radius: 8px; margin-top: 10px;">
-                        <strong style="color: var(--text-primary); font-size: 13px;">🛡️ Permisos de Administrador</strong>
-                        <div style="font-size: 12px; color: var(--text-secondary); margin: 6px 0 10px 0;">
-                            Windows protege el registro BTHPORT. Si quieres que WristKey lea claves del sistema, pulsa el botón:
-                        </div>
-                        <button id="btn-request-uac" class="btn btn-primary btn-sm">🛡️ Conceder permisos UAC</button>
-                    </div>
-                `;
-                const btnUac = document.getElementById("btn-request-uac");
-                if (btnUac) {
-                    btnUac.onclick = async () => {
-                        btnUac.textContent = "Abriendo UAC...";
-                        try {
-                            await invoke("relaunch_as_admin");
-                        } catch (err) {
-                            alert(err);
-                            btnUac.textContent = "🛡️ Conceder permisos UAC";
-                        }
-                    };
-                }
-                return;
-            }
-
-            const keys = await invoke("query_registry_keys");
-            displayRegistryKeys(keys);
-        } catch (err) {
-            regResults.innerHTML = `
-                <div style="background: rgba(255, 185, 0, 0.08); border: 1px solid rgba(255, 185, 0, 0.3); padding: 14px; border-radius: 8px; margin-top: 10px;">
-                    <strong style="color: var(--text-primary); font-size: 13px;">ℹ️ No hay Apple Watches vinculados en Windows Bluetooth</strong>
-                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;">
-                        Es completamente normal: los Apple Watch se vinculan al iPhone, no a Windows.<br>
-                        <strong>No necesitas ninguna clave:</strong> pulsa <strong>"Next: Distance Calibration"</strong> abajo para calibrar el auto-bloqueo directamente con el reloj que seleccionaste en el Paso 1.
-                    </div>
-                </div>
-            `;
-        } finally {
-            btnImportReg.textContent = "⚡ Inspeccionar claves emparejadas";
-        }
-    });
-}
-
-function displayRegistryKeys(keys) {
-    if (!keys || keys.length === 0) {
-        regResults.innerHTML = `
-            <div style="background: rgba(255, 185, 0, 0.08); border: 1px solid rgba(255, 185, 0, 0.3); padding: 14px; border-radius: 8px; margin-top: 10px;">
-                <strong style="color: var(--text-primary); font-size: 13px;">ℹ️ No hay Apple Watches vinculados en Windows Bluetooth</strong>
-                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;">
-                    Es lo normal: el Apple Watch está vinculado con tu iPhone.<br>
-                    Pulsa directamente el botón <strong>"Next: Distance Calibration ➔"</strong> abajo para continuar.
-                </div>
-            </div>
-        `;
-        return;
-    }
-
-    regResults.innerHTML = keys.map(k => `
-        <div style="background: rgba(255,255,255,0.06); padding: 10px; border-radius: 6px; margin-top: 8px;">
-            <strong>${k.name || 'Dispositivo Apple'} (${k.device_mac})</strong>
-            <div style="font-family: monospace; font-size: 11.5px; color: var(--accent); margin: 4px 0;">
-                IRK: ${k.irk_hex || 'No disponible'}
-            </div>
-            ${k.irk_hex ? `<button class="btn btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="selectIrk('${k.irk_hex}')">Usar esta IRK</button>` : ''}
-        </div>
-    `).join("");
-}
-
-window.selectIrk = function(hex) {
-    inputIrk.value = hex;
-    configuredIrk = hex;
-    irkFeedback.innerHTML = `<span style="color: var(--success)">✓ Clave IRK cargada (${hex.slice(0, 10)}...)</span>`;
-};
-
-if (btnVerifyIrk) {
-    btnVerifyIrk.addEventListener("click", async () => {
-        const val = inputIrk.value.trim();
-        if (val.length !== 32) {
-            irkFeedback.innerHTML = `<span style="color: var(--danger)">La clave IRK debe tener 32 caracteres hexadecimales (16 bytes).</span>`;
-            return;
-        }
-
-        try {
-            await invoke("verify_irk", { irk: val });
-            irkFeedback.innerHTML = `<span style="color: var(--success)">✓ Clave IRK válida (Criptografía AES-128 verificada).</span>`;
-            configuredIrk = val;
-        } catch (err) {
-            irkFeedback.innerHTML = `<span style="color: var(--danger)">Error: ${err}</span>`;
-        }
-    });
-}
-
-// Step 3: Distance Calibration
+// Step 2: Distance Calibration Sliders & Thresholds
 function initCalibrationSliders() {
     const sliderUnlock = document.getElementById("slider-unlock");
     const sliderLock = document.getElementById("slider-lock");
@@ -404,7 +289,7 @@ function initCalibrationSliders() {
 
 function updateThresholdMarkers() {
     const minRssi = -82;
-    const maxRssi = -40;
+    const maxRssi = -42;
     const unlockPct = Math.min(100, Math.max(0, ((unlockThreshold - minRssi) / (maxRssi - minRssi)) * 100));
     const lockPct = Math.min(100, Math.max(0, ((lockThreshold - minRssi) / (maxRssi - minRssi)) * 100));
 
@@ -423,38 +308,54 @@ function updateThresholdMarkers() {
     }
 }
 
-// Step 4: Vault Handlers
+// Step 3: Vault Handlers (DPAPI Credential Storage)
 function initVaultHandlers() {
     const btnSaveVault = document.getElementById("btn-save-vault");
     const btnTestVault = document.getElementById("btn-test-vault");
     const vaultFeedback = document.getElementById("vault-feedback");
 
-    btnSaveVault.addEventListener("click", async () => {
-        const domain = document.getElementById("vault-domain").value.trim() || ".";
-        const username = document.getElementById("vault-username").value.trim();
-        const password = document.getElementById("vault-password").value;
+    if (btnSaveVault) {
+        btnSaveVault.addEventListener("click", async () => {
+            const domain = document.getElementById("vault-domain").value.trim() || ".";
+            const username = document.getElementById("vault-username").value.trim();
+            const password = document.getElementById("vault-password").value;
 
-        if (!username || !password) {
-            vaultFeedback.innerHTML = `<span style="color: var(--danger)">Introduce usuario y contraseña/PIN.</span>`;
-            return;
-        }
+            if (!username || !password) {
+                vaultFeedback.innerHTML = `<span style="color: var(--danger)">Introduce usuario y contraseña/PIN de Windows.</span>`;
+                return;
+            }
 
-        try {
-            await invoke("save_credentials", { domain, username, password });
-            vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Guardado seguro en la bóveda DPAPI de Windows.</span>`;
-        } catch (err) {
-            vaultFeedback.innerHTML = `<span style="color: var(--danger)">${err}</span>`;
-        }
-    });
+            try {
+                await invoke("save_credentials", { domain, username, password });
+                vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Credenciales guardadas y cifradas con DPAPI en Windows.</span>`;
+            } catch (err) {
+                vaultFeedback.innerHTML = `<span style="color: var(--danger)">${err}</span>`;
+            }
+        });
+    }
 
-    btnTestVault.addEventListener("click", async () => {
-        try {
-            const res = await invoke("test_vault");
-            vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Bóveda verificada: ${res.username} (${res.domain})</span>`;
-        } catch (err) {
-            vaultFeedback.innerHTML = `<span style="color: var(--danger)">Error en la bóveda: ${err}</span>`;
-        }
-    });
+    if (btnTestVault) {
+        btnTestVault.addEventListener("click", async () => {
+            try {
+                const res = await invoke("test_vault");
+                vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Bóveda verificada correctamente: ${res.username} (${res.domain})</span>`;
+            } catch (err) {
+                vaultFeedback.innerHTML = `<span style="color: var(--danger)">Error al leer bóveda: ${err}</span>`;
+            }
+        });
+    }
+
+    const btnSaveAll = document.getElementById("btn-save-all");
+    if (btnSaveAll) {
+        btnSaveAll.addEventListener("click", () => {
+            btnSaveAll.textContent = "✓ ¡Configuración guardada!";
+            btnSaveAll.style.background = "var(--success)";
+            setTimeout(() => {
+                btnSaveAll.textContent = "Guardar Configuración";
+                btnSaveAll.style.background = "";
+            }, 2500);
+        });
+    }
 }
 
 function initQuickLock() {
@@ -470,7 +371,7 @@ function initQuickLock() {
     }
 }
 
-// Live Signal Updates
+// Step 2 & 4: Live Signal Updates (Steady, Smooth & Highly Accurate)
 function startLiveUpdates() {
     setInterval(async () => {
         if (!isScanning) return;
@@ -501,9 +402,9 @@ function startLiveUpdates() {
                 if (elRssi) elRssi.textContent = reading.rssi.toFixed(1);
                 if (elDist) elDist.textContent = `~${reading.distance_meters.toFixed(1)}m`;
 
-                // Dynamic Percentage: maps -82 dBm (0%) to -40 dBm (100%)
+                // Dynamic Percentage: maps -82 dBm (0%) to -42 dBm (100%)
                 const minRssi = -82;
-                const maxRssi = -40;
+                const maxRssi = -42;
                 const pct = Math.min(100, Math.max(0, ((reading.rssi - minRssi) / (maxRssi - minRssi)) * 100));
                 if (elBar) elBar.style.width = `${pct}%`;
 
@@ -526,9 +427,19 @@ function startLiveUpdates() {
                 // Update Dashboard Values
                 const dashRssi = document.getElementById("dash-rssi");
                 const dashDist = document.getElementById("dash-dist");
+                const dashWrist = document.getElementById("dash-wrist");
                 if (dashRssi) dashRssi.textContent = `${reading.rssi.toFixed(1)} dBm`;
                 if (dashDist) dashDist.textContent = `~${reading.distance_meters.toFixed(1)} m`;
+                if (dashWrist) {
+                    if (reading.is_confirmed_watch && !reading.is_lost) {
+                        dashWrist.textContent = "En muñeca verificado";
+                        dashWrist.className = "dash-val green";
+                    } else {
+                        dashWrist.textContent = "Buscando reloj...";
+                        dashWrist.className = "dash-val";
+                    }
+                }
             }
         } catch (_) {}
-    }, 350);
+    }, 400);
 }
