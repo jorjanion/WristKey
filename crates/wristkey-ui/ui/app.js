@@ -16,9 +16,9 @@ let currentStep = 1;
 let isScanning = true;
 let selectedMac = null;
 let configuredIrk = "";
-let unlockThreshold = -62;
-let lockThreshold = -82;
-let currentRssi = -65.0;
+let unlockThreshold = -58;
+let lockThreshold = -74;
+let currentRssi = -58.0;
 let scanInterval = null;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -200,8 +200,13 @@ function renderDiscoveredDevices(devices) {
         return;
     }
 
-    // STRICT SORT: Always strongest RSSI (closest device) first
-    devices.sort((a, b) => b.rssi - a.rssi);
+    // STRICT SORT: Confirmed Apple Watches FIRST, then by RSSI descending
+    devices.sort((a, b) => {
+        if (b.is_confirmed_watch !== a.is_confirmed_watch) {
+            return b.is_confirmed_watch ? 1 : -1;
+        }
+        return b.rssi - a.rssi;
+    });
 
     // Remove any items that are no longer active
     const activeMacs = new Set(devices.map(d => d.mac));
@@ -215,9 +220,18 @@ function renderDiscoveredDevices(devices) {
     const empty = list.querySelector(".empty-state");
     if (empty) empty.remove();
 
+    // Auto-select the first confirmed Apple Watch (or first device if none)
+    if (!selectedMac) {
+        const firstWatch = devices.find(d => d.is_confirmed_watch) || devices[0];
+        if (firstWatch) {
+            selectedMac = firstWatch.mac;
+            currentRssi = firstWatch.rssi;
+        }
+    }
+
     devices.forEach((dev, idx) => {
         const signal = getHumanSignal(dev.rssi);
-        const isClosest = idx === 0;
+        const isClosestWatch = dev.is_confirmed_watch && (idx === 0 || !devices.slice(0, idx).some(d => d.is_confirmed_watch));
 
         let item = list.querySelector(`.device-item[data-mac="${dev.mac}"]`);
         if (!item) {
@@ -231,18 +245,17 @@ function renderDiscoveredDevices(devices) {
             });
         }
 
-        const isSelected = selectedMac === dev.mac || (!selectedMac && idx === 0);
-        if (isSelected && !selectedMac) {
-            selectedMac = dev.mac;
-            currentRssi = dev.rssi;
-        }
+        const isSelected = selectedMac === dev.mac;
+        item.className = `device-item ${isSelected ? "selected" : ""} ${isClosestWatch ? "is-closest" : ""}`;
 
-        item.className = `device-item ${isSelected ? "selected" : ""} ${isClosest ? "is-closest" : ""}`;
+        const badgeClass = dev.is_confirmed_watch ? "badge-watch" : "badge-apple-device";
+        const closestStar = isClosestWatch ? '<span class="badge-closest">⭐ TU RELOJ MÁS CERCANO</span>' : '';
+
         item.innerHTML = `
             <div>
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px;">
-                    <span class="badge-watch">${dev.name}</span>
-                    ${isClosest ? '<span class="badge-closest">⭐ MÁS CERCANO (Al lado de tu PC)</span>' : ''}
+                    <span class="${badgeClass}">${dev.name}</span>
+                    ${closestStar}
                 </div>
                 <div style="font-size: 11.5px; color: var(--text-secondary); font-family: monospace;">${dev.mac}</div>
             </div>
@@ -370,15 +383,44 @@ function initCalibrationSliders() {
     const valUnlock = document.getElementById("val-unlock-dbm");
     const valLock = document.getElementById("val-lock-dbm");
 
-    sliderUnlock.addEventListener("input", (e) => {
-        unlockThreshold = parseInt(e.target.value);
-        valUnlock.textContent = `${unlockThreshold} dBm`;
-    });
+    if (sliderUnlock) {
+        sliderUnlock.addEventListener("input", (e) => {
+            unlockThreshold = parseInt(e.target.value);
+            if (valUnlock) valUnlock.textContent = `${unlockThreshold} dBm`;
+            updateThresholdMarkers();
+        });
+    }
 
-    sliderLock.addEventListener("input", (e) => {
-        lockThreshold = parseInt(e.target.value);
-        valLock.textContent = `${lockThreshold} dBm`;
-    });
+    if (sliderLock) {
+        sliderLock.addEventListener("input", (e) => {
+            lockThreshold = parseInt(e.target.value);
+            if (valLock) valLock.textContent = `${lockThreshold} dBm`;
+            updateThresholdMarkers();
+        });
+    }
+
+    updateThresholdMarkers();
+}
+
+function updateThresholdMarkers() {
+    const minRssi = -80;
+    const maxRssi = -48;
+    const unlockPct = Math.min(100, Math.max(0, ((unlockThreshold - minRssi) / (maxRssi - minRssi)) * 100));
+    const lockPct = Math.min(100, Math.max(0, ((lockThreshold - minRssi) / (maxRssi - minRssi)) * 100));
+
+    const markerUnlock = document.getElementById("marker-unlock");
+    const markerLock = document.getElementById("marker-lock");
+
+    if (markerUnlock) {
+        markerUnlock.style.left = `${unlockPct}%`;
+        const lbl = markerUnlock.querySelector(".marker-label");
+        if (lbl) lbl.textContent = `🔓 Desbloqueo (${unlockThreshold} dBm)`;
+    }
+    if (markerLock) {
+        markerLock.style.left = `${lockPct}%`;
+        const lbl = markerLock.querySelector(".marker-label");
+        if (lbl) lbl.textContent = `🔒 Bloqueo (${lockThreshold} dBm)`;
+    }
 }
 
 // Step 4: Vault Handlers
@@ -438,6 +480,16 @@ function startLiveUpdates() {
             if (reading) {
                 currentRssi = reading.rssi;
 
+                // Update Tracked Device Header
+                const elTrackedName = document.getElementById("cal-tracked-name");
+                const elTrackedMac = document.getElementById("cal-tracked-mac");
+                if (elTrackedName && reading.device_name) elTrackedName.textContent = reading.device_name;
+                if (elTrackedMac && reading.current_mac) elTrackedMac.textContent = reading.current_mac;
+
+                if (reading.current_mac && reading.is_confirmed_watch) {
+                    selectedMac = reading.current_mac;
+                }
+
                 // Update Calibration Meter
                 const elRssi = document.getElementById("cal-rssi-value");
                 const elBar = document.getElementById("cal-meter-bar");
@@ -447,19 +499,23 @@ function startLiveUpdates() {
                 if (elRssi) elRssi.textContent = reading.rssi.toFixed(1);
                 if (elDist) elDist.textContent = `~${reading.distance_meters.toFixed(1)}m`;
 
-                // Dynamic Percentage: maps -95 dBm (0%) to -45 dBm (100%)
-                const pct = Math.min(100, Math.max(0, ((reading.rssi - (-95)) / 50) * 100));
+                // Dynamic Percentage: maps -80 dBm (0%) to -48 dBm (100%)
+                const minRssi = -80;
+                const maxRssi = -48;
+                const pct = Math.min(100, Math.max(0, ((reading.rssi - minRssi) / (maxRssi - minRssi)) * 100));
                 if (elBar) elBar.style.width = `${pct}%`;
 
                 if (elState) {
-                    elState.textContent = reading.status_text;
                     if (reading.is_lost || reading.rssi <= lockThreshold) {
+                        elState.textContent = "LEJOS (Zona de auto-bloqueo)";
                         elState.className = "tag-far";
                         elState.style.color = "var(--danger)";
-                    } else if (reading.is_near) {
+                    } else if (reading.rssi >= unlockThreshold) {
+                        elState.textContent = "CERCA (Escritorio / Desbloqueado)";
                         elState.className = "tag-near";
                         elState.style.color = "var(--success)";
                     } else {
+                        elState.textContent = "ZONA MEDIA (En la habitación / Sin cambios)";
                         elState.className = "tag-mid";
                         elState.style.color = "var(--warning)";
                     }

@@ -179,6 +179,15 @@ impl AppleContinuityFrame {
             })
         }
     }
+
+    /// Returns true if this frame exhibits Apple Watch specific characteristics
+    /// (e.g. Action Code 0x0A: Watch on wrist, or Auto Unlock capability bit).
+    pub fn is_apple_watch(&self) -> bool {
+        self.message_type == TYPE_NEARBY_INFO
+            && (self.action_code == Some(ACTION_WATCH_ON_WRIST_UNLOCKED)
+                || self.auto_unlock_capable
+                || self.is_on_wrist)
+    }
 }
 
 #[cfg(test)]

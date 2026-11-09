@@ -18,11 +18,16 @@ pub struct DiscoveredDeviceDto {
     pub is_unlocked: bool,
     pub frame_type: String,
     pub is_watch_candidate: bool,
+    pub is_confirmed_watch: bool,
+    pub device_type: String,
     pub last_seen_ms_ago: u64,
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct ProximityReadingDto {
+    pub current_mac: String,
+    pub device_name: String,
+    pub is_confirmed_watch: bool,
     pub rssi: f32,
     pub smoothed_rssi: f32,
     pub distance_meters: f32,
@@ -64,8 +69,14 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
         }
     }
 
-    // Sort strictly by RSSI descending (strongest / closest device always first)
-    results.sort_by(|a, b| b.rssi.cmp(&a.rssi));
+    // Sort order:
+    // 1. Confirmed Apple Watches FIRST (sorted by RSSI descending)
+    // 2. Other Apple devices SECOND (sorted by RSSI descending)
+    results.sort_by(|a, b| {
+        b.is_confirmed_watch
+            .cmp(&a.is_confirmed_watch)
+            .then_with(|| b.rssi.cmp(&a.rssi))
+    });
     results
 }
 
@@ -73,48 +84,65 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
 fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
     let now = Instant::now();
     if let Ok(lock) = DEVICES.lock() {
+        // Priority for target tracking:
+        // 1. If mac is provided, check if it exists and was seen recently (< 3.0s ago)
+        // 2. If mac was not seen recently or rotated, find the best confirmed Apple Watch
+        // 3. Fallback to any Apple device
         let target = if let Some(ref m) = mac {
-            lock.get(m).or_else(|| {
-                let mut v: Vec<_> = lock.values().collect();
-                v.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
-                v.first().copied()
+            let direct = lock.get(m).filter(|e| now.duration_since(e.last_seen).as_secs_f32() < 3.0);
+            direct.or_else(|| {
+                // Find confirmed watch (NOT iPhone!)
+                let mut watches: Vec<_> = lock.values().filter(|e| e.device.is_confirmed_watch).collect();
+                watches.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
+                watches.first().copied().or_else(|| {
+                    let mut all: Vec<_> = lock.values().collect();
+                    all.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
+                    all.first().copied()
+                })
             })
         } else {
-            let mut v: Vec<_> = lock.values().collect();
-            v.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
-            v.first().copied()
+            let mut watches: Vec<_> = lock.values().filter(|e| e.device.is_confirmed_watch).collect();
+            watches.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
+            watches.first().copied().or_else(|| {
+                let mut all: Vec<_> = lock.values().collect();
+                all.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
+                all.first().copied()
+            })
         };
 
         if let Some(entry) = target {
             let elapsed_secs = now.duration_since(entry.last_seen).as_secs_f32();
 
             // Responsive Signal Decay: If user steps away and packets stop arriving,
-            // signal naturally drops towards -95 dBm
-            let effective_rssi = if elapsed_secs > 1.8 {
-                let decay = (elapsed_secs - 1.8) * 8.0;
-                (entry.device.rssi as f32 - decay).max(-95.0)
+            // signal decays progressively towards -92 dBm
+            let effective_rssi = if elapsed_secs > 1.2 {
+                let decay = (elapsed_secs - 1.2) * 12.0;
+                (entry.device.rssi as f32 - decay).max(-92.0)
             } else {
                 entry.device.rssi as f32
             };
 
             // Distance estimation (path loss model with desk anchor)
-            let ratio = (-50.0 - effective_rssi) / (10.0 * 2.5);
-            let distance_meters = (10.0_f32).powf(ratio).clamp(0.2, 10.0);
+            let ratio = (-52.0 - effective_rssi) / (10.0 * 2.2);
+            let distance_meters = (10.0_f32).powf(ratio).clamp(0.2, 8.0);
 
-            let is_lost = elapsed_secs > 4.5 || effective_rssi <= -88.0;
-            let is_near = effective_rssi >= -62.0 && !is_lost;
+            let is_lost = elapsed_secs > 3.0 || effective_rssi <= -78.0;
+            let is_near = effective_rssi >= -60.0 && !is_lost;
 
             let status_text = if is_lost {
                 "LEJOS / SIN SEÑAL (Zona de bloqueo)".to_string()
             } else if is_near {
                 "CERCA (En tu escritorio / Desbloqueado)".to_string()
-            } else if effective_rssi <= -80.0 {
-                "LEJOS (Alejándote)".to_string()
+            } else if effective_rssi <= -72.0 {
+                "ALEJÁNDOTE (Próximo al bloqueo)".to_string()
             } else {
                 "ZONA MEDIA (En la habitación)".to_string()
             };
 
             return ProximityReadingDto {
+                current_mac: entry.device.mac.clone(),
+                device_name: entry.device.name.clone(),
+                is_confirmed_watch: entry.device.is_confirmed_watch,
                 rssi: effective_rssi,
                 smoothed_rssi: effective_rssi,
                 distance_meters,
@@ -127,8 +155,11 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
     }
 
     ProximityReadingDto {
-        rssi: -95.0,
-        smoothed_rssi: -95.0,
+        current_mac: "".to_string(),
+        device_name: "Buscando reloj...".to_string(),
+        is_confirmed_watch: false,
+        rssi: -92.0,
+        smoothed_rssi: -92.0,
         distance_meters: 8.0,
         is_near: false,
         is_lost: true,
@@ -312,20 +343,29 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
+                        let is_confirmed_watch = frame.is_apple_watch();
+                        let device_type = if is_confirmed_watch {
+                            "apple_watch".to_string()
+                        } else {
+                            "apple_device".to_string()
+                        };
+
                         let name = if frame.is_on_wrist_and_unlocked {
                             "Apple Watch (En muñeca y desbloqueado)".to_string()
                         } else if frame.is_on_wrist {
                             "Apple Watch (En muñeca, bloqueado)".to_string()
-                        } else if event.rssi >= -55 {
-                            "Apple Watch / iPhone (Al lado de la pantalla)".to_string()
+                        } else if is_confirmed_watch {
+                            "Apple Watch".to_string()
                         } else {
-                            "Dispositivo Apple (iPhone / iPad / Watch)".to_string()
+                            "iPhone / iPad (Continuity)".to_string()
                         };
 
                         if let Ok(mut lock) = DEVICES.lock() {
                             let smoothed_rssi = if let Some(existing) = lock.get(&mac_str) {
-                                // Responsive smoothing: 50% existing + 50% new to track real movement
-                                ((existing.device.rssi as f32 * 0.5) + (event.rssi as f32 * 0.5)).round() as i16
+                                let diff = (event.rssi - existing.device.rssi).abs();
+                                // Responsive dynamic smoothing: if moving (diff >= 3 dBm), take 70% of new reading immediately
+                                let alpha = if diff >= 3 { 0.70 } else { 0.45 };
+                                ((existing.device.rssi as f32 * (1.0 - alpha)) + (event.rssi as f32 * alpha)).round() as i16
                             } else {
                                 event.rssi
                             };
@@ -337,7 +377,9 @@ fn start_background_scanner() {
                                 on_wrist: frame.is_on_wrist,
                                 is_unlocked: !frame.is_locked,
                                 frame_type: "Nearby Info (0x10)".to_string(),
-                                is_watch_candidate: true,
+                                is_watch_candidate: is_confirmed_watch,
+                                is_confirmed_watch,
+                                device_type,
                                 last_seen_ms_ago: 0,
                             };
 

@@ -554,18 +554,122 @@ body {
 
 .meter-bar-container {
     width: 100%;
-    height: 12px;
+    height: 18px;
     background: rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    margin: 16px 0;
-    overflow: hidden;
+    border-radius: 9px;
+    margin: 38px 0 24px 0;
+    position: relative;
 }
 
 .meter-bar {
     height: 100%;
-    background: linear-gradient(90deg, var(--danger) 0%, var(--warning) 50%, var(--success) 100%);
-    border-radius: 6px;
-    transition: width 0.3s cubic-bezier(0.1, 0.9, 0.2, 1);
+    background: linear-gradient(90deg, var(--danger) 0%, var(--warning) 45%, var(--success) 90%);
+    border-radius: 9px;
+    transition: width 0.25s cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+
+.meter-marker {
+    position: absolute;
+    top: -8px;
+    bottom: -8px;
+    width: 3px;
+    z-index: 5;
+    transform: translateX(-50%);
+    pointer-events: none;
+    border-radius: 2px;
+    transition: left 0.1s ease;
+}
+
+.marker-unlock {
+    background: var(--success);
+    box-shadow: 0 0 10px var(--success);
+}
+
+.marker-lock {
+    background: var(--danger);
+    box-shadow: 0 0 10px var(--danger);
+}
+
+.meter-marker .marker-label {
+    position: absolute;
+    top: -26px;
+    transform: translateX(-50%);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(15, 20, 28, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.marker-unlock .marker-label {
+    color: var(--success);
+}
+
+.marker-lock .marker-label {
+    color: var(--danger);
+}
+
+.tracked-device-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 10px 16px;
+    margin-bottom: 16px;
+}
+
+.tracked-device-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success);
+    animation: livePulse 1.5s infinite;
+}
+
+@keyframes livePulse {
+    0% { opacity: 0.4; transform: scale(0.9); }
+    50% { opacity: 1; transform: scale(1.2); }
+    100% { opacity: 0.4; transform: scale(0.9); }
+}
+
+.mac-pill {
+    font-family: monospace;
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--text-secondary);
+}
+
+.device-help-tip {
+    background: rgba(96, 205, 255, 0.08);
+    border: 1px solid rgba(96, 205, 255, 0.25);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    font-size: 12.5px;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+
+.badge-apple-device {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    margin-right: 6px;
 }
 
 .meter-stats {

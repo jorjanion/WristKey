@@ -14,7 +14,7 @@
                 <div class="brand-icon">⌚</div>
                 <div class="brand-text">
                     <h1>WristKey</h1>
-                    <span class="version-tag">v0.4.5 Fluent</span>
+                    <span class="version-tag">v0.4.6 Fluent</span>
                 </div>
             </div>
 
@@ -83,6 +83,10 @@
                     <span id="scan-status-text" class="status-indicator">Listening for Apple Continuity advertisements</span>
                 </div>
 
+                <div class="device-help-tip">
+                    💡 <strong>Para identificar tu Apple Watch:</strong> Toca la pantalla o levanta la muñeca para emitir señal al instante. WristKey marca automáticamente tu reloj con una estrella ⭐ y lo prioriza sobre otros dispositivos.
+                </div>
+
                 <div class="device-list-container">
                     <h3>Discovered Apple Devices</h3>
                     <div id="device-list" class="device-list">
@@ -141,21 +145,36 @@
             <section id="step-3" class="wizard-step">
                 <div class="step-header">
                     <h2>Live Proximity Calibration</h2>
-                    <p class="subtitle">Sit at your computer or walk 3 meters away to observe the live signal meter and set your ideal lock and unlock thresholds.</p>
+                    <p class="subtitle">Sit at your computer or walk around the room to observe the live signal meter and set your ideal lock and unlock thresholds.</p>
+                </div>
+
+                <div class="tracked-device-card">
+                    <div class="tracked-device-info">
+                        <span class="live-dot"></span>
+                        <span style="font-size: 13.5px; font-weight: 500;">Dispositivo en directo: <strong id="cal-tracked-name">Buscando reloj...</strong></span>
+                        <span id="cal-tracked-mac" class="mac-pill"></span>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="goToStep(1)">Cambiar reloj</button>
                 </div>
 
                 <div class="calibration-display">
                     <div class="signal-meter-card">
                         <div class="meter-value">
-                            <span id="cal-rssi-value">-65.0</span>
+                            <span id="cal-rssi-value">-58.0</span>
                             <span class="unit">dBm</span>
                         </div>
                         <div class="meter-bar-container">
-                            <div id="cal-meter-bar" class="meter-bar" style="width: 65%;"></div>
+                            <div id="cal-meter-bar" class="meter-bar" style="width: 70%;"></div>
+                            <div id="marker-lock" class="meter-marker marker-lock" style="left: 20%;">
+                                <span class="marker-label">🔒 Bloqueo (-74 dBm)</span>
+                            </div>
+                            <div id="marker-unlock" class="meter-marker marker-unlock" style="left: 70%;">
+                                <span class="marker-label">🔓 Desbloqueo (-58 dBm)</span>
+                            </div>
                         </div>
                         <div class="meter-stats">
-                            <span>Estimated Distance: <strong id="cal-dist-est">~1.5m</strong></span>
-                            <span>State: <strong id="cal-state-tag" class="tag-near">NEAR (In Range)</strong></span>
+                            <span>Distancia estimada: <strong id="cal-dist-est">~1.0m</strong></span>
+                            <span>Estado: <strong id="cal-state-tag" class="tag-near">CERCA (En tu escritorio / Desbloqueado)</strong></span>
                         </div>
                     </div>
                 </div>
@@ -165,20 +184,20 @@
                     
                     <div class="slider-row">
                         <div class="slider-info">
-                            <label for="slider-unlock">Unlock Threshold (Near Desk)</label>
-                            <span id="val-unlock-dbm">-62 dBm</span>
+                            <label for="slider-unlock">Umbral de desbloqueo (En el escritorio)</label>
+                            <span id="val-unlock-dbm">-58 dBm</span>
                         </div>
-                        <input type="range" id="slider-unlock" min="-80" max="-45" value="-62" class="fluent-slider">
-                        <small>PC unlocks when you approach within this range.</small>
+                        <input type="range" id="slider-unlock" min="-75" max="-48" value="-58" class="fluent-slider">
+                        <small>El PC se desbloquea al sentarte en el escritorio (~0.8 - 1 m).</small>
                     </div>
 
                     <div class="slider-row">
                         <div class="slider-info">
-                            <label for="slider-lock">Lock Threshold (Away / Leave Desk)</label>
-                            <span id="val-lock-dbm">-82 dBm</span>
+                            <label for="slider-lock">Umbral de bloqueo (Al alejarte)</label>
+                            <span id="val-lock-dbm">-74 dBm</span>
                         </div>
-                        <input type="range" id="slider-lock" min="-95" max="-70" value="-82" class="fluent-slider">
-                        <small>PC locks automatically when signal drops below this strength.</small>
+                        <input type="range" id="slider-lock" min="-85" max="-65" value="-74" class="fluent-slider">
+                        <small>El PC se bloquea automáticamente al alejarte por la habitación (~2.5 - 3 m).</small>
                     </div>
                 </div>
 
