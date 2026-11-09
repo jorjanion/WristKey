@@ -171,24 +171,20 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
         let target = if let Some(ref m) = mac {
             if let Some(entry) = lock.get(m) {
                 let elapsed = now.duration_since(entry.last_seen).as_secs_f32();
-                if elapsed >= 3.0 {
-                    // Check if the watch rotated its MAC address:
-                    // Look for another confirmed on-wrist watch seen much more recently (< 2.5s ago)
-                    // CRITICAL: The replacement MUST be in desk proximity (rssi >= -68 dBm).
-                    // Distant watches from adjacent rooms (e.g. -81 dBm) are strictly forbidden from hijacking!
+                // ONLY allow RPA rotation handoff if the old MAC has been completely silent for >= 60 seconds
+                // AND a replacement confirmed Apple Watch is present at desk proximity (>= -65 dBm).
+                // Under NO circumstances should it hop after 3 seconds!
+                if elapsed >= 60.0 {
                     let fresh_watch = lock
                         .values()
                         .filter(|e| {
                             e.device.mac != *m
-                                && (e.device.is_confirmed_watch || e.device.on_wrist)
+                                && e.device.is_confirmed_watch
+                                && e.device.on_wrist
                                 && now.duration_since(e.last_seen).as_secs_f32() < 2.5
-                                && e.device.rssi >= -68
+                                && e.device.rssi >= -65
                         })
-                        .max_by(|a, b| {
-                            a.device.is_confirmed_watch
-                                .cmp(&b.device.is_confirmed_watch)
-                                .then_with(|| a.device.rssi.cmp(&b.device.rssi))
-                        });
+                        .max_by(|a, b| a.device.rssi.cmp(&b.device.rssi));
 
                     Some(fresh_watch.unwrap_or(entry))
                 } else {
@@ -540,11 +536,6 @@ fn start_background_scanner() {
                             continue;
                         }
 
-                        // Must be confirmed watch or watch candidate
-                        if !frame.is_apple_watch() {
-                            continue;
-                        }
-
                         let mac_str = format!(
                             "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
                             (event.mac >> 40) & 0xFF,
@@ -555,10 +546,24 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
+                        // STRICT APPLE WATCH ADMISSION:
+                        // Reject iPhones, iPads, Macs, and accessories.
+                        // Only confirmed Apple Watch frames are admitted.
+                        // If it's not a confirmed watch, we ONLY accept it if mac_str was ALREADY confirmed
+                        // as our Apple Watch and is now reporting locked/off-wrist state (is_locked == true).
+                        let was_already_watch = if let Ok(lock) = DEVICES.lock() {
+                            lock.get(&mac_str).map_or(false, |e| e.device.is_confirmed_watch)
+                        } else {
+                            false
+                        };
+
+                        if !frame.is_confirmed_apple_watch() && !(was_already_watch && frame.is_locked) {
+                            continue;
+                        }
+
                         if let Ok(mut lock) = DEVICES.lock() {
-                            let was_already_watch = lock.get(&mac_str).map_or(false, |e| e.device.is_confirmed_watch);
                             let is_on_wrist = frame.is_on_wrist_and_unlocked;
-                            let is_confirmed_watch = was_already_watch || frame.is_confirmed_apple_watch() || is_on_wrist;
+                            let is_confirmed_watch = was_already_watch || frame.is_confirmed_apple_watch();
 
                             let name = if is_on_wrist {
                                 "Apple Watch (En tu muñeca y desbloqueado)".to_string()
@@ -937,7 +942,7 @@ mod tests {
         if let Ok(mut lock) = DEVICES.lock() {
             lock.clear();
 
-            // Old MAC has gone silent (seen 4.0s ago)
+            // Old MAC has gone silent (seen 65s ago, typical after 15m RPA rotation)
             lock.insert(
                 old_mac.clone(),
                 DeviceEntry {
@@ -951,9 +956,9 @@ mod tests {
                         is_watch_candidate: true,
                         is_confirmed_watch: true,
                         device_type: "apple_watch".to_string(),
-                        last_seen_ms_ago: 4000,
+                        last_seen_ms_ago: 65000,
                     },
-                    last_seen: Instant::now() - std::time::Duration::from_millis(4000),
+                    last_seen: Instant::now() - std::time::Duration::from_millis(65000),
                     smoothed_rssi_f32: -55.0,
                 },
             );
@@ -1204,6 +1209,21 @@ mod tests {
         assert_ne!(reading.current_mac, distant_mac);
         // Signal must have decayed because elapsed > 2.0s
         assert!(reading.rssi < -58.0);
+    }
+
+    #[test]
+    fn test_iphone_with_screen_on_strictly_rejected_as_apple_watch() {
+        use wristkey_core::continuity::AppleContinuityFrame;
+        // Raw Nearby Info packet from an active iPhone on the desk:
+        // Type 0x10, Len 0x05, Action 0x17 (Screen On with iCloud), Status 0x04 (Wi-Fi ON, Unlocked)
+        let raw_iphone = vec![0x10, 0x05, 0x17, 0x04, 0xAA, 0xBB, 0xCC];
+        let frame = AppleContinuityFrame::parse(&raw_iphone).expect("Must parse");
+
+        // An iPhone must NEVER be confirmed as an Apple Watch and must NEVER be on wrist!
+        assert!(!frame.is_confirmed_apple_watch());
+        assert!(!frame.is_on_wrist);
+        assert!(!frame.is_on_wrist_and_unlocked);
+        assert!(!frame.is_apple_watch());
     }
 }
 

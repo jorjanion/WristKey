@@ -193,21 +193,14 @@ impl AppleContinuityFrame {
             };
 
             // Apple Watch Wrist Detection & Lock status:
-            // On Apple Watch with Wrist Detection enabled (default on watchOS):
-            // - Bit 5 (0x20) of status byte: 0 = Unlocked (worn on wrist), 1 = Locked (off wrist or locked)
-            // - Action code 0x0A: Explicitly "Watch on wrist & unlocked"
-            // - If the watch is locked (is_locked == true), it is off wrist or locked with passcode.
-            // - If not locked (!is_locked), it is on wrist and unlocked.
-            let is_on_wrist = if action_code == ACTION_WATCH_ON_WRIST_UNLOCKED {
-                true
-            } else if is_locked {
-                false
-            } else {
-                // Not locked: device is worn on wrist and actively operating
-                true
-            };
-
-            let is_on_wrist_and_unlocked = is_on_wrist && !is_locked;
+            // An Apple Watch is ONLY worn on wrist and unlocked if:
+            // 1. Action Code is 0x0A (ACTION_WATCH_ON_WRIST_UNLOCKED), OR
+            // 2. Auto-Unlock capability is active (0xC0), AND
+            // 3. Lock bit 5 is 0 (!is_locked).
+            // Under NO circumstances can an iPhone / iPad (which send action codes 0x07, 0x09, 0x03)
+            // be considered "on wrist"!
+            let is_on_wrist = (action_code == ACTION_WATCH_ON_WRIST_UNLOCKED || auto_unlock) && !is_locked;
+            let is_on_wrist_and_unlocked = is_on_wrist;
 
             Some(Self {
                 message_type,
@@ -259,33 +252,12 @@ impl AppleContinuityFrame {
         }
     }
 
-    /// Returns true if this frame can potentially be an Apple Watch:
-    /// - Any confirmed Apple Watch
-    /// - Nearby Info (0x10) with watch-compatible states (Screen On 0x07, Interaction 0x0B, Idle 0x03, 0x0A, etc.)
-    /// - Handoff (0x0C)
-    /// Explicitly excludes AirTags/Find My trackers (0x12, 0x16), AirPods (0x07 pairing), and iPhone-exclusive call/driving/video states.
+    /// Returns true if this frame is confirmed to originate from an Apple Watch:
+    /// - Magic Switch frame (0x0B)
+    /// - Nearby Info (0x10) with On-Wrist action code (0x0A) or Auto-Unlock capability flags (0xC0)
+    /// Explicitly excludes iPhones, iPads, Macs, and AirPods.
     pub fn is_apple_watch(&self) -> bool {
-        if self.is_confirmed_apple_watch() {
-            return true;
-        }
-
-        match self.message_type {
-            TYPE_NEARBY_INFO => {
-                if let Some(action) = self.action_code {
-                    // Exclude non-watch iPhone-exclusive activities:
-                    if action == ACTION_SCREEN_ON_VIDEO
-                        || action == ACTION_DRIVING
-                        || action == ACTION_CALL_ACTIVE
-                        || action == ACTION_AUDIO_PLAYING_LOCKED
-                    {
-                        return false;
-                    }
-                }
-                true
-            }
-            TYPE_HANDOFF => true,
-            _ => false,
-        }
+        self.is_confirmed_apple_watch()
     }
 }
 
@@ -328,9 +300,8 @@ mod tests {
 
     #[test]
     fn test_parse_nearby_info_watch_active_screen_on_and_interaction() {
-        // Apple Watch SE screen active with iCloud account signed in (0x17 = 0x10 iCloud + 0x07 Screen On)
-        // unlocked (0x04 Wi-Fi, Lock bit 5 is 0):
-        let raw_screen_on = vec![0x10, 0x05, 0x17, 0x04, 0x11, 0x22, 0x33];
+        // Apple Watch SE screen active with AutoUnlock capable flag set (0x44)
+        let raw_screen_on = vec![0x10, 0x05, 0x17, 0x44, 0x11, 0x22, 0x33];
         let frame = AppleContinuityFrame::parse(&raw_screen_on).expect("Must parse");
         assert_eq!(frame.action_code, Some(ACTION_SCREEN_ON));
         assert!(frame.is_primary_icloud);
@@ -339,8 +310,8 @@ mod tests {
         assert!(frame.is_on_wrist_and_unlocked);
         assert!(frame.is_apple_watch());
 
-        // Action 0x1B (Recent Interaction with iCloud signed in)
-        let raw_interaction = vec![0x10, 0x05, 0x1B, 0x04, 0x11, 0x22, 0x33];
+        // Action 0x1B (Recent Interaction with AutoUnlock capable flag set)
+        let raw_interaction = vec![0x10, 0x05, 0x1B, 0x44, 0x11, 0x22, 0x33];
         let frame2 = AppleContinuityFrame::parse(&raw_interaction).expect("Must parse");
         assert_eq!(frame2.action_code, Some(ACTION_RECENT_INTERACTION));
         assert!(!frame2.is_locked);
@@ -382,8 +353,8 @@ mod tests {
         assert_eq!(frame_handoff.message_type, TYPE_HANDOFF);
         assert!(!frame_handoff.is_on_wrist);
         assert!(!frame_handoff.is_confirmed_apple_watch());
-        // Candidate frame
-        assert!(frame_handoff.is_apple_watch());
+        // Standalone Handoff from Mac/iPhone is not confirmed watch
+        assert!(!frame_handoff.is_apple_watch());
 
         // Proximity Pairing (0x07) from AirPods
         let raw_pairing = vec![0x07, 0x02, 0x01, 0x02];

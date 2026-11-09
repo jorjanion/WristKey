@@ -109,7 +109,7 @@ async function checkForUpdates() {
         });
         if (response.ok) {
             const release = await response.json();
-            const currentVersion = "0.4.14";
+            const currentVersion = "0.4.15";
             const tag = release.tag_name || "";
             const latestClean = tag.replace(/^v/, "");
 
@@ -571,11 +571,6 @@ function startLiveUpdates() {
                 const elTrackedMac = document.getElementById("cal-tracked-mac");
                 if (elTrackedName && reading.device_name) elTrackedName.textContent = reading.device_name;
                 if (elTrackedMac && reading.current_mac) elTrackedMac.textContent = reading.current_mac;
-
-                if (reading.current_mac && reading.is_confirmed_watch) {
-                    selectedMac = reading.current_mac;
-                    localStorage.setItem("wristkey_selected_mac", selectedMac);
-                }
 
                 // Update Calibration Meter
                 const elRssi = document.getElementById("cal-rssi-value");
