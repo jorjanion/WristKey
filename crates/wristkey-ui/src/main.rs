@@ -684,7 +684,7 @@ fn start_native_proximity_engine() {
             // Protection ONLY arms when the user's watch is confirmed in desk proximity (< 2m, on-wrist).
             // If the watch is not connected or in another room on startup, we do NOT lock the PC!
             if !session_armed {
-                if reading.is_near && (!settings.require_on_wrist || reading.is_confirmed_watch) {
+                if reading.is_near && (!settings.require_on_wrist || (reading.is_confirmed_watch && reading.on_wrist && reading.is_unlocked)) {
                     session_armed = true;
                     log::info!(
                         "[NATIVE ENGINE] Session ARMED: Apple Watch confirmed at desk ({:.1} dBm). Proximity protection active!",
@@ -705,10 +705,10 @@ fn start_native_proximity_engine() {
                 // Criteria for being "Away":
                 // 1. Device is lost (> 18s of silence / out of range)
                 // 2. Smoothed RSSI has fallen below lock_threshold_dbm (e.g. <= -74 dBm)
-                // 3. (If require_on_wrist) watch has been removed from wrist / locked for >= 3s
+                // 3. (If require_on_wrist) watch has been removed from wrist or locked
                 let is_away = reading.is_lost
                     || reading.rssi <= settings.lock_threshold_dbm as f32
-                    || (settings.require_on_wrist && !reading.is_confirmed_watch && reading.seconds_since_last_packet > 3.0);
+                    || (settings.require_on_wrist && (!reading.on_wrist || !reading.is_unlocked));
 
                 if is_away {
                     consecutive_away_ticks += 1;
@@ -735,7 +735,7 @@ fn start_native_proximity_engine() {
                 let is_near = !reading.is_lost
                     && reading.seconds_since_last_packet < 2.5
                     && reading.rssi >= settings.unlock_threshold_dbm as f32
-                    && (!settings.require_on_wrist || reading.is_confirmed_watch);
+                    && (!settings.require_on_wrist || (reading.is_confirmed_watch && reading.on_wrist && reading.is_unlocked));
 
                 if is_near {
                     consecutive_near_ticks += 1;
@@ -1224,6 +1224,49 @@ mod tests {
         assert!(!frame.is_on_wrist);
         assert!(!frame.is_on_wrist_and_unlocked);
         assert!(!frame.is_apple_watch());
+    }
+
+    #[test]
+    fn test_apple_watch_se_hardware_device_class_discovered_and_on_wrist() {
+        use wristkey_core::continuity::AppleContinuityFrame;
+        // User's Apple Watch SE (watchOS 10.6.2) live capture packet:
+        let raw_watch = vec![0x10, 0x07, 0x3B, 0x1F, 0x2E, 0xD6, 0xDB, 0x68, 0x28];
+        let frame = AppleContinuityFrame::parse(&raw_watch).expect("Must parse Watch SE frame");
+
+        assert!(frame.is_confirmed_apple_watch());
+        assert!(frame.is_on_wrist);
+        assert!(frame.is_on_wrist_and_unlocked);
+
+        let mac = "68:DF:DA:84:95:A9".to_string();
+        if let Ok(mut lock) = DEVICES.lock() {
+            lock.clear();
+            lock.insert(
+                mac.clone(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: mac.clone(),
+                        name: "Apple Watch (En tu muñeca y desbloqueado)".to_string(),
+                        rssi: -45,
+                        on_wrist: frame.is_on_wrist_and_unlocked,
+                        is_unlocked: !frame.is_locked,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: true,
+                        is_confirmed_watch: frame.is_confirmed_apple_watch(),
+                        device_type: "apple_watch".to_string(),
+                        last_seen_ms_ago: 0,
+                    },
+                    last_seen: Instant::now(),
+                    smoothed_rssi_f32: -45.0,
+                },
+            );
+        }
+
+        let discovered = get_discovered_devices();
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].mac, mac);
+        assert!(discovered[0].is_confirmed_watch);
+        assert!(discovered[0].on_wrist);
+        assert_eq!(discovered[0].rssi, -45);
     }
 }
 

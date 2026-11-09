@@ -192,14 +192,17 @@ impl AppleContinuityFrame {
                 None
             };
 
-            // Apple Watch Wrist Detection & Lock status:
-            // An Apple Watch is ONLY worn on wrist and unlocked if:
-            // 1. Action Code is 0x0A (ACTION_WATCH_ON_WRIST_UNLOCKED), OR
-            // 2. Auto-Unlock capability is active (0xC0), AND
-            // 3. Lock bit 5 is 0 (!is_locked).
-            // Under NO circumstances can an iPhone / iPad (which send action codes 0x07, 0x09, 0x03)
-            // be considered "on wrist"!
-            let is_on_wrist = (action_code == ACTION_WATCH_ON_WRIST_UNLOCKED || auto_unlock) && !is_locked;
+            // Apple Watch Wrist Detection & Hardware Device Identification:
+            // An Apple device is identified as an Apple Watch by:
+            // 1. Action Code 0x0A (ACTION_WATCH_ON_WRIST_UNLOCKED)
+            // 2. Auto-Unlock capability bit in status flags (0xC0)
+            // 3. Apple Hardware Device Class: When Nearby Info has length >= 7, payload[6] is (device_class << 3).
+            //    Device Class 5 = Apple Watch (0x28)!
+            let is_watch = action_code == ACTION_WATCH_ON_WRIST_UNLOCKED
+                || auto_unlock
+                || (payload.len() >= 7 && (payload[payload.len() - 1] >> 3) == 5);
+
+            let is_on_wrist = is_watch && !is_locked;
             let is_on_wrist_and_unlocked = is_on_wrist;
 
             Some(Self {
@@ -241,12 +244,28 @@ impl AppleContinuityFrame {
     /// - Magic Switch frame (0x0B) - Apple Watch wrist beacon
     /// - Action Code 0x0A (Watch on wrist & unlocked)
     /// - Auto Unlock capability flags enabled (Bit 6 or 7 of status byte)
+    /// - Hardware Device Class 5 == Apple Watch (0x28 byte in Nearby Info payload >= 7 bytes)
     pub fn is_confirmed_apple_watch(&self) -> bool {
         match self.message_type {
             TYPE_MAGIC_SWITCH => true,
             TYPE_NEARBY_INFO => {
-                self.action_code == Some(ACTION_WATCH_ON_WRIST_UNLOCKED)
-                    || self.auto_unlock_capable
+                if self.action_code == Some(ACTION_WATCH_ON_WRIST_UNLOCKED) || self.auto_unlock_capable {
+                    return true;
+                }
+                // Hardware Device Class 5 == Apple Watch:
+                // In Apple Continuity Nearby Info (0x10), when payload length is >= 7 bytes,
+                // the device class byte is payload[payload.len() - 1].
+                // (device_class_byte >> 3) == 5 represents an Apple Watch (e.g. 0x28, 0x29).
+                if self.raw_payload.len() >= 9 && self.raw_payload[0] == TYPE_NEARBY_INFO {
+                    let len = self.raw_payload[1] as usize;
+                    if len >= 7 && self.raw_payload.len() >= 2 + len {
+                        let dev_class_byte = self.raw_payload[2 + len - 1];
+                        if (dev_class_byte >> 3) == 5 {
+                            return true;
+                        }
+                    }
+                }
+                false
             }
             _ => false,
         }
@@ -389,5 +408,20 @@ mod tests {
         assert_eq!(frame.action_code, Some(ACTION_WATCH_ON_WRIST_UNLOCKED));
         assert!(frame.is_on_wrist_and_unlocked);
         assert!(frame.is_apple_watch());
+    }
+
+    #[test]
+    fn test_parse_apple_watch_se_live_telemetry() {
+        // Captured live from user's Apple Watch SE (watchOS 10.6.2) on wrist:
+        // Type 0x10 (Nearby Info), Length 0x07, Action 0x3B (0x0B Recent Interaction), Status 0x1F, Auth Tag/Entropy, Device Class 0x28 (0x28 >> 3 == 5: Apple Watch)
+        let raw = vec![0x10, 0x07, 0x3B, 0x1F, 0x2E, 0xD6, 0xDB, 0x68, 0x28];
+        let frame = AppleContinuityFrame::parse(&raw).expect("Must parse Apple Watch SE live frame");
+
+        assert_eq!(frame.message_type, TYPE_NEARBY_INFO);
+        assert!(frame.is_confirmed_apple_watch());
+        assert!(frame.is_apple_watch());
+        assert!(frame.is_on_wrist);
+        assert!(frame.is_on_wrist_and_unlocked);
+        assert!(!frame.is_locked);
     }
 }

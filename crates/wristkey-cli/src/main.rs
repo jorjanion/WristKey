@@ -350,6 +350,7 @@ fn run_telemetry(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(ref tag) = frame.auth_tag {
                     println!("  Auth Tag:     {:02X?}", tag);
                 }
+                println!("  Raw bytes:    {:02X?}", frame.raw_payload);
             }
         }
         sleep(Duration::from_millis(150));
