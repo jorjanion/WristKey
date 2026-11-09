@@ -106,8 +106,13 @@ impl BleScanner {
                                                                     len,
                                                                     raw
                                                                 );
-                                                                apple_frame =
-                                                                    AppleContinuityFrame::parse(&raw);
+                                                                if let Some(parsed) =
+                                                                    AppleContinuityFrame::parse(&raw)
+                                                                {
+                                                                    if apple_frame.is_none() || parsed.is_apple_watch() {
+                                                                        apple_frame = Some(parsed);
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     }

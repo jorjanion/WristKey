@@ -377,11 +377,6 @@ fn start_background_scanner() {
                 log::info!("Live WinRT BLE scanner started for UI");
                 while let Ok(event) = rx.recv() {
                     if let Some(frame) = event.apple_frame {
-                        // Only Nearby Info frames (0x10) carry Apple Watch on-wrist telemetry
-                        if frame.message_type != 0x10 {
-                            continue;
-                        }
-
                         let mac_str = format!(
                             "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
                             (event.mac >> 40) & 0xFF,
@@ -392,22 +387,18 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
-                        // Strictly require Apple Watch on-wrist frame (0x0A)
-                        let is_on_wrist_frame = frame.action_code == Some(wristkey_core::continuity::ACTION_WATCH_ON_WRIST_UNLOCKED)
-                            && !frame.is_locked;
-
                         if let Ok(mut lock) = DEVICES.lock() {
                             let was_already_watch = lock.get(&mac_str).map_or(false, |e| e.device.is_confirmed_watch);
 
-                            // STRICT NOISE FILTER:
-                            // Drop everything that is not an on-wrist Apple Watch.
-                            // Filters out iPhones, iPads, MacBooks, AirPods, and non-wrist devices completely.
-                            if !is_on_wrist_frame && !was_already_watch {
+                            // Detect if this frame exhibits Apple Watch telemetry
+                            let is_watch_frame = frame.is_apple_watch();
+                            if !is_watch_frame && !was_already_watch {
                                 continue;
                             }
 
-                            // If watch was locked or taken off wrist, mark it off-wrist
-                            let is_on_wrist = is_on_wrist_frame && !frame.is_locked;
+                            // If watch was locked or taken off wrist, mark it off-wrist.
+                            // If not locked and frame indicates on wrist (or was already confirmed on wrist):
+                            let is_on_wrist = !frame.is_locked && (frame.is_on_wrist || was_already_watch);
                             let is_confirmed_watch = true;
 
                             let name = if is_on_wrist {
@@ -415,6 +406,8 @@ fn start_background_scanner() {
                             } else {
                                 "Apple Watch (Bloqueado / Fuera de muñeca)".to_string()
                             };
+
+                            let frame_desc = format!("{} (0x{:02X})", frame.message_type_name, frame.message_type);
 
                             // HIGH-PRECISION ADAPTIVE RSSI SMOOTHING:
                             let raw_f = event.rssi as f32;
@@ -453,7 +446,7 @@ fn start_background_scanner() {
                                 rssi: smoothed_rssi_f32.round() as i16,
                                 on_wrist: is_on_wrist,
                                 is_unlocked: !frame.is_locked,
-                                frame_type: "Nearby Info (0x10)".to_string(),
+                                frame_type: frame_desc,
                                 is_watch_candidate: true,
                                 is_confirmed_watch,
                                 device_type: "apple_watch".to_string(),
@@ -506,8 +499,11 @@ fn main() {
 mod tests {
     use super::*;
 
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_device_filtering_and_closest_watch_isolation() {
+        let _guard = TEST_LOCK.lock().unwrap();
         if let Ok(mut lock) = DEVICES.lock() {
             lock.clear();
 
@@ -587,6 +583,7 @@ mod tests {
 
     #[test]
     fn test_live_proximity_steady_signal_and_distance() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let mac = "AA:BB:CC:DD:EE:99".to_string();
         if let Ok(mut lock) = DEVICES.lock() {
             lock.clear();
@@ -621,6 +618,7 @@ mod tests {
 
     #[test]
     fn test_mac_address_rotation_seamless_handoff() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let old_mac = "11:22:33:44:55:01".to_string();
         let new_mac = "11:22:33:44:55:02".to_string();
 
@@ -682,6 +680,7 @@ mod tests {
 
     #[test]
     fn test_locked_or_off_wrist_watch_not_discovered() {
+        let _guard = TEST_LOCK.lock().unwrap();
         if let Ok(mut lock) = DEVICES.lock() {
             lock.clear();
 
@@ -709,6 +708,41 @@ mod tests {
 
         let discovered = get_discovered_devices();
         assert_eq!(discovered.len(), 0);
+    }
+
+    #[test]
+    fn test_watch_active_screen_on_or_interaction_discovered() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        if let Ok(mut lock) = DEVICES.lock() {
+            lock.clear();
+
+            // Apple Watch SE (watchOS 10.6.2) worn on wrist, active user with screen on (0x07)
+            lock.insert(
+                "AA:BB:CC:DD:EE:05".to_string(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: "AA:BB:CC:DD:EE:05".to_string(),
+                        name: "Apple Watch (En tu muñeca y desbloqueado)".to_string(),
+                        rssi: -52,
+                        on_wrist: true,
+                        is_unlocked: true,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: true,
+                        is_confirmed_watch: true,
+                        device_type: "apple_watch".to_string(),
+                        last_seen_ms_ago: 0,
+                    },
+                    last_seen: Instant::now(),
+                    smoothed_rssi_f32: -52.0,
+                },
+            );
+        }
+
+        let discovered = get_discovered_devices();
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].mac, "AA:BB:CC:DD:EE:05");
+        assert!(discovered[0].on_wrist);
+        assert!(discovered[0].is_confirmed_watch);
     }
 }
 
