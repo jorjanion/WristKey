@@ -83,7 +83,7 @@ impl BleScanner {
                             let mac = args.BluetoothAddress().unwrap_or(0);
                             let rssi = args.RawSignalStrengthInDBm().unwrap_or(-100);
 
-                            let mut apple_frame = None;
+                            let mut apple_frame: Option<AppleContinuityFrame> = None;
 
                             if let Ok(ad) = args.Advertisement() {
                                 if let Ok(sections) = ad.ManufacturerData() {
@@ -109,7 +109,15 @@ impl BleScanner {
                                                                 if let Some(parsed) =
                                                                     AppleContinuityFrame::parse(&raw)
                                                                 {
-                                                                    if apple_frame.is_none() || parsed.is_apple_watch() {
+                                                                    let replace = match &apple_frame {
+                                                                        None => true,
+                                                                        Some(current) => {
+                                                                            !current.is_confirmed_apple_watch()
+                                                                                && (parsed.is_confirmed_apple_watch()
+                                                                                    || parsed.is_apple_watch())
+                                                                        }
+                                                                    };
+                                                                    if replace {
                                                                         apple_frame = Some(parsed);
                                                                     }
                                                                 }
