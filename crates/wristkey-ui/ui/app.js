@@ -147,10 +147,6 @@ function goToStep(step) {
 
     if (targetStep) targetStep.classList.add("active");
     if (targetNav) targetNav.classList.add("active");
-
-    if (step === 2) {
-        checkAdminOnStep2();
-    }
 }
 
 // Scanner & Discovery
@@ -204,14 +200,26 @@ function renderDiscoveredDevices(devices) {
         return;
     }
 
+    // STRICT SORT: Always strongest RSSI (closest device) first
+    devices.sort((a, b) => b.rssi - a.rssi);
+
+    // Remove any items that are no longer active
+    const activeMacs = new Set(devices.map(d => d.mac));
+    list.querySelectorAll(".device-item").forEach(el => {
+        const mac = el.getAttribute("data-mac");
+        if (mac && !activeMacs.has(mac)) {
+            el.remove();
+        }
+    });
+
     const empty = list.querySelector(".empty-state");
     if (empty) empty.remove();
 
     devices.forEach((dev, idx) => {
         const signal = getHumanSignal(dev.rssi);
-        const isClosest = idx === 0 && dev.rssi >= -65;
-        let item = list.querySelector(`.device-item[data-mac="${dev.mac}"]`);
+        const isClosest = idx === 0;
 
+        let item = list.querySelector(`.device-item[data-mac="${dev.mac}"]`);
         if (!item) {
             item = document.createElement("div");
             item.setAttribute("data-mac", dev.mac);
@@ -221,7 +229,6 @@ function renderDiscoveredDevices(devices) {
                 selectedMac = dev.mac;
                 currentRssi = dev.rssi;
             });
-            list.appendChild(item);
         }
 
         const isSelected = selectedMac === dev.mac || (!selectedMac && idx === 0);
@@ -234,7 +241,7 @@ function renderDiscoveredDevices(devices) {
         item.innerHTML = `
             <div>
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px;">
-                    <span class="badge-watch">⌚ ${dev.name}</span>
+                    <span class="badge-watch">${dev.name}</span>
                     ${isClosest ? '<span class="badge-closest">⭐ MÁS CERCANO (Al lado de tu PC)</span>' : ''}
                 </div>
                 <div style="font-size: 11.5px; color: var(--text-secondary); font-family: monospace;">${dev.mac}</div>
@@ -246,6 +253,9 @@ function renderDiscoveredDevices(devices) {
                 <span class="signal-dbm-pill">${signal.quality} · ${dev.rssi} dBm</span>
             </div>
         `;
+
+        // appendChild maintains strict proximity order
+        list.appendChild(item);
     });
 }
 
@@ -256,65 +266,48 @@ const inputIrk = document.getElementById("input-irk");
 const btnVerifyIrk = document.getElementById("btn-verify-irk");
 const irkFeedback = document.getElementById("irk-verification-feedback");
 
-async function checkAdminOnStep2() {
-    try {
-        const isAdmin = await invoke("is_running_as_admin");
-        if (!isAdmin) {
-            showUacElevationCard();
-            return false;
-        }
-    } catch (_) {}
-    return true;
-}
-
-function showUacElevationCard() {
-    if (!regResults) return;
-    regResults.innerHTML = `
-        <div style="background: rgba(96, 205, 255, 0.08); border: 1px solid rgba(96, 205, 255, 0.35); padding: 16px; border-radius: 8px; margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
-            <div style="display: flex; align-items: center; gap: 14px;">
-                <span style="font-size: 28px;">🛡️</span>
-                <div>
-                    <strong style="color: var(--text-primary); font-size: 13.5px;">Permisos de Administrador requeridos</strong>
-                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
-                        Windows requiere permisos de administrador para leer las claves de emparejamiento Bluetooth (BTHPORT).
-                    </div>
-                </div>
-            </div>
-            <button id="btn-request-uac" class="btn btn-primary" style="white-space: nowrap; padding: 8px 16px;">
-                🛡️ Conceder permisos UAC
-            </button>
-        </div>
-    `;
-
-    const btnUac = document.getElementById("btn-request-uac");
-    if (btnUac) {
-        btnUac.addEventListener("click", async () => {
-            btnUac.textContent = "Abriendo cuadro UAC...";
-            try {
-                await invoke("relaunch_as_admin");
-            } catch (err) {
-                alert(err);
-                btnUac.textContent = "🛡️ Conceder permisos UAC";
-            }
-        });
-    }
-}
-
 if (btnImportReg) {
     btnImportReg.addEventListener("click", async () => {
-        btnImportReg.textContent = "Consultando registro (BTHPORT)...";
+        btnImportReg.textContent = "Consultando registro de Windows...";
         try {
             const isAdmin = await invoke("is_running_as_admin");
             if (!isAdmin) {
-                showUacElevationCard();
-                btnImportReg.textContent = "⚡ Inspeccionar claves emparejadas";
+                regResults.innerHTML = `
+                    <div style="background: rgba(96, 205, 255, 0.08); border: 1px solid rgba(96, 205, 255, 0.35); padding: 14px; border-radius: 8px; margin-top: 10px;">
+                        <strong style="color: var(--text-primary); font-size: 13px;">🛡️ Permisos de Administrador</strong>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin: 6px 0 10px 0;">
+                            Windows protege el registro BTHPORT. Si quieres que WristKey lea claves del sistema, pulsa el botón:
+                        </div>
+                        <button id="btn-request-uac" class="btn btn-primary btn-sm">🛡️ Conceder permisos UAC</button>
+                    </div>
+                `;
+                const btnUac = document.getElementById("btn-request-uac");
+                if (btnUac) {
+                    btnUac.onclick = async () => {
+                        btnUac.textContent = "Abriendo UAC...";
+                        try {
+                            await invoke("relaunch_as_admin");
+                        } catch (err) {
+                            alert(err);
+                            btnUac.textContent = "🛡️ Conceder permisos UAC";
+                        }
+                    };
+                }
                 return;
             }
 
             const keys = await invoke("query_registry_keys");
             displayRegistryKeys(keys);
         } catch (err) {
-            showUacElevationCard();
+            regResults.innerHTML = `
+                <div style="background: rgba(255, 185, 0, 0.08); border: 1px solid rgba(255, 185, 0, 0.3); padding: 14px; border-radius: 8px; margin-top: 10px;">
+                    <strong style="color: var(--text-primary); font-size: 13px;">ℹ️ No hay Apple Watches vinculados en Windows Bluetooth</strong>
+                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;">
+                        Es completamente normal: los Apple Watch se vinculan al iPhone, no a Windows.<br>
+                        <strong>No necesitas ninguna clave:</strong> pulsa <strong>"Next: Distance Calibration"</strong> abajo para calibrar el auto-bloqueo directamente con el reloj que seleccionaste en el Paso 1.
+                    </div>
+                </div>
+            `;
         } finally {
             btnImportReg.textContent = "⚡ Inspeccionar claves emparejadas";
         }
@@ -324,10 +317,11 @@ if (btnImportReg) {
 function displayRegistryKeys(keys) {
     if (!keys || keys.length === 0) {
         regResults.innerHTML = `
-            <div style="background: rgba(255, 185, 0, 0.1); border: 1px solid rgba(255, 185, 0, 0.3); padding: 12px; border-radius: 6px; margin-top: 10px;">
-                <strong style="color: var(--warning); font-size: 12.5px;">No se encontraron claves de Apple Watch emparejadas en Windows.</strong>
-                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px;">
-                    Si no has vinculado el reloj en Configuración de Windows > Bluetooth, puedes introducir la clave IRK manualmente en la Opción B.
+            <div style="background: rgba(255, 185, 0, 0.08); border: 1px solid rgba(255, 185, 0, 0.3); padding: 14px; border-radius: 8px; margin-top: 10px;">
+                <strong style="color: var(--text-primary); font-size: 13px;">ℹ️ No hay Apple Watches vinculados en Windows Bluetooth</strong>
+                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;">
+                    Es lo normal: el Apple Watch está vinculado con tu iPhone.<br>
+                    Pulsa directamente el botón <strong>"Next: Distance Calibration ➔"</strong> abajo para continuar.
                 </div>
             </div>
         `;

@@ -6,7 +6,7 @@ use std::time::Instant;
 use wristkey_core::crypto::IrkResolver;
 use wristkey_core::dpapi::{CredentialVault, UserCredentials};
 use wristkey_core::lock::lock_workstation;
-use wristkey_core::registry::{read_paired_bluetooth_keys, PairedBluetoothKey, RegistryError};
+use wristkey_core::registry::{read_paired_bluetooth_keys, PairedBluetoothKey};
 use wristkey_core::scanner::BleScanner;
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -43,8 +43,8 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
     let mut results = Vec::new();
 
     if let Ok(mut lock) = DEVICES.lock() {
-        // Retain only devices seen within the last 12 seconds
-        lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 12);
+        // Drop devices not seen in the last 6 seconds (removes stale/rotated MACs quickly)
+        lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 6);
 
         for entry in lock.values() {
             let mut dev = entry.device.clone();
@@ -53,7 +53,7 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
         }
     }
 
-    // Sort by RSSI descending (strongest / nearest device first)
+    // Sort strictly by RSSI descending (strongest / closest device always first)
     results.sort_by(|a, b| b.rssi.cmp(&a.rssi));
     results
 }
@@ -69,15 +69,15 @@ fn get_device_rssi(mac: String) -> Option<i16> {
 
 #[tauri::command]
 fn is_running_as_admin() -> bool {
-    match read_paired_bluetooth_keys() {
-        Ok(_) => true,
-        Err(RegistryError::AccessDenied) => false,
-        Err(_) => true,
-    }
+    wristkey_core::registry::is_elevated()
 }
 
 #[tauri::command]
 fn relaunch_as_admin() -> Result<(), String> {
+    if wristkey_core::registry::is_elevated() {
+        return Ok(());
+    }
+
     let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe_str = current_exe.to_string_lossy().to_string();
 
@@ -94,7 +94,7 @@ fn relaunch_as_admin() -> Result<(), String> {
     if status.success() {
         std::process::exit(0);
     } else {
-        Err("El usuario canceló la solicitud de permisos UAC".to_string())
+        Err("El usuario canceló la elevación de permisos UAC".to_string())
     }
 }
 
@@ -219,7 +219,6 @@ fn start_background_scanner() {
                 while let Ok(event) = rx.recv() {
                     if let Some(frame) = event.apple_frame {
                         // STRICT FILTER: Only accept Apple Watch candidates (Apple Continuity 0x10 Nearby Info)
-                        // Discard AirTags (0x12), iBeacons (0x01), and non-watch noise completely
                         if frame.message_type != 0x10 {
                             continue;
                         }
@@ -234,20 +233,20 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
+                        // Clear naming: distinction between confirmed wrist vs nearby device
                         let name = if frame.is_on_wrist_and_unlocked {
                             "Apple Watch (En muñeca y desbloqueado)".to_string()
                         } else if frame.is_on_wrist {
                             "Apple Watch (En muñeca, bloqueado)".to_string()
-                        } else if event.rssi >= -60 {
-                            "Apple Watch (Al lado del PC)".to_string()
+                        } else if event.rssi >= -55 {
+                            "Apple Watch / iPhone (Al lado de la pantalla)".to_string()
                         } else {
-                            "Apple Watch (En proximidad)".to_string()
+                            "Dispositivo Apple (iPhone / iPad / Watch)".to_string()
                         };
 
                         if let Ok(mut lock) = DEVICES.lock() {
                             let smoothed_rssi = if let Some(existing) = lock.get(&mac_str) {
-                                // Heavy EMA smoothing (75% existing + 25% new) to eliminate jitter
-                                ((existing.device.rssi as f32 * 0.75) + (event.rssi as f32 * 0.25)).round() as i16
+                                ((existing.device.rssi as f32 * 0.7) + (event.rssi as f32 * 0.3)).round() as i16
                             } else {
                                 event.rssi
                             };
