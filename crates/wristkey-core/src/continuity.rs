@@ -202,7 +202,15 @@ impl AppleContinuityFrame {
                 || auto_unlock
                 || (payload.len() >= 7 && (payload[payload.len() - 1] >> 3) == 5);
 
-            let is_on_wrist = is_watch && !is_locked;
+            // An Apple Watch is ONLY on wrist and unlocked if:
+            // 1. Action Code is 0x0A (Watch on wrist & unlocked), OR
+            // 2. Action Code is 0x0B (Recent user interaction on wrist), OR
+            // 3. Auto-Unlock capability flags are set (0xC0), AND
+            // 4. Device is NOT locked (!is_locked).
+            // When sitting on a charger or table (Action 0x05, Action 0x03), it is NOT on wrist!
+            let is_on_wrist = is_watch
+                && (action_code == ACTION_WATCH_ON_WRIST_UNLOCKED || action_code == ACTION_RECENT_INTERACTION || auto_unlock)
+                && !is_locked;
             let is_on_wrist_and_unlocked = is_on_wrist;
 
             Some(Self {
@@ -423,5 +431,20 @@ mod tests {
         assert!(frame.is_on_wrist);
         assert!(frame.is_on_wrist_and_unlocked);
         assert!(!frame.is_locked);
+    }
+
+    #[test]
+    fn test_parse_apple_watch_on_charger_not_on_wrist() {
+        // Captured live from user's Apple Watch SE on charging dock:
+        // Action 0x35 (0x05 Audio/Charging state), Status 0x1F, Device Class 0x28 (Apple Watch)
+        let raw = vec![0x10, 0x07, 0x35, 0x1F, 0x1F, 0x66, 0xAD, 0x73, 0x28];
+        let frame = AppleContinuityFrame::parse(&raw).expect("Must parse Watch on charger frame");
+
+        assert_eq!(frame.message_type, TYPE_NEARBY_INFO);
+        assert!(frame.is_confirmed_apple_watch());
+        assert!(frame.is_apple_watch());
+        // Must NOT be considered on-wrist while on the charger!
+        assert!(!frame.is_on_wrist);
+        assert!(!frame.is_on_wrist_and_unlocked);
     }
 }
