@@ -25,6 +25,60 @@ let autoLockEnabled = localStorage.getItem("wristkey_auto_lock") !== "false";
 let autoUnlockEnabled = localStorage.getItem("wristkey_auto_unlock") !== "false";
 let requireWristEnabled = localStorage.getItem("wristkey_require_wrist") !== "false";
 
+async function syncEngineSettings() {
+    try {
+        await invoke("update_engine_settings", {
+            newSettings: {
+                auto_lock_enabled: autoLockEnabled,
+                auto_unlock_enabled: autoUnlockEnabled,
+                require_on_wrist: requireWristEnabled,
+                lock_threshold_dbm: lockThreshold,
+                unlock_threshold_dbm: unlockThreshold,
+                tracked_mac: selectedMac
+            }
+        });
+    } catch (_) {}
+}
+
+async function loadEngineSettings() {
+    try {
+        const s = await invoke("get_engine_settings");
+        if (s) {
+            autoLockEnabled = s.auto_lock_enabled;
+            autoUnlockEnabled = s.auto_unlock_enabled;
+            requireWristEnabled = s.require_on_wrist;
+            lockThreshold = s.lock_threshold_dbm;
+            unlockThreshold = s.unlock_threshold_dbm;
+            if (s.tracked_mac) {
+                selectedMac = s.tracked_mac;
+                localStorage.setItem("wristkey_selected_mac", selectedMac);
+            }
+            localStorage.setItem("wristkey_auto_lock", autoLockEnabled);
+            localStorage.setItem("wristkey_auto_unlock", autoUnlockEnabled);
+            localStorage.setItem("wristkey_require_wrist", requireWristEnabled);
+            localStorage.setItem("wristkey_lock_thresh", lockThreshold);
+            localStorage.setItem("wristkey_unlock_thresh", unlockThreshold);
+
+            const chkAutoLock = document.getElementById("chk-auto-lock");
+            const chkAutoUnlock = document.getElementById("chk-auto-unlock");
+            const chkRequireWrist = document.getElementById("chk-require-wrist");
+            if (chkAutoLock) chkAutoLock.checked = autoLockEnabled;
+            if (chkAutoUnlock) chkAutoUnlock.checked = autoUnlockEnabled;
+            if (chkRequireWrist) chkRequireWrist.checked = requireWristEnabled;
+
+            const sliderUnlock = document.getElementById("slider-unlock");
+            const sliderLock = document.getElementById("slider-lock");
+            const valUnlock = document.getElementById("val-unlock-dbm");
+            const valLock = document.getElementById("val-lock-dbm");
+            if (sliderUnlock) sliderUnlock.value = unlockThreshold;
+            if (valUnlock) valUnlock.textContent = `${unlockThreshold} dBm`;
+            if (sliderLock) sliderLock.value = lockThreshold;
+            if (valLock) valLock.textContent = `${lockThreshold} dBm`;
+            updateThresholdMarkers();
+        }
+    } catch (_) {}
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     initNavigation();
     initScannerControls();
@@ -32,6 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initVaultHandlers();
     initDashboardHandlers();
     initQuickLock();
+    loadEngineSettings();
 
     // If configuration was previously completed, jump directly to the live Dashboard!
     if (isSetupCompleted) {
@@ -54,7 +109,7 @@ async function checkForUpdates() {
         });
         if (response.ok) {
             const release = await response.json();
-            const currentVersion = "0.4.12";
+            const currentVersion = "0.4.13";
             const tag = release.tag_name || "";
             const latestClean = tag.replace(/^v/, "");
 
@@ -274,6 +329,7 @@ function renderDiscoveredDevices(devices) {
                 selectedMac = dev.mac;
                 currentRssi = dev.rssi;
                 localStorage.setItem("wristkey_selected_mac", selectedMac);
+                syncEngineSettings();
             });
         }
 
@@ -318,6 +374,9 @@ function initCalibrationSliders() {
             if (valUnlock) valUnlock.textContent = `${unlockThreshold} dBm`;
             updateThresholdMarkers();
         });
+        sliderUnlock.addEventListener("change", () => {
+            syncEngineSettings();
+        });
     }
 
     if (sliderLock) {
@@ -328,6 +387,9 @@ function initCalibrationSliders() {
             localStorage.setItem("wristkey_lock_thresh", lockThreshold);
             if (valLock) valLock.textContent = `${lockThreshold} dBm`;
             updateThresholdMarkers();
+        });
+        sliderLock.addEventListener("change", () => {
+            syncEngineSettings();
         });
     }
 
@@ -422,6 +484,7 @@ function initDashboardHandlers() {
         chkAutoLock.addEventListener("change", (e) => {
             autoLockEnabled = e.target.checked;
             localStorage.setItem("wristkey_auto_lock", autoLockEnabled);
+            syncEngineSettings();
         });
     }
 
@@ -430,6 +493,7 @@ function initDashboardHandlers() {
         chkAutoUnlock.addEventListener("change", (e) => {
             autoUnlockEnabled = e.target.checked;
             localStorage.setItem("wristkey_auto_unlock", autoUnlockEnabled);
+            syncEngineSettings();
         });
     }
 
@@ -438,6 +502,7 @@ function initDashboardHandlers() {
         chkRequireWrist.addEventListener("change", (e) => {
             requireWristEnabled = e.target.checked;
             localStorage.setItem("wristkey_require_wrist", requireWristEnabled);
+            syncEngineSettings();
         });
     }
 
@@ -589,12 +654,7 @@ function startLiveUpdates() {
                         dashLiveStatus.textContent = "LEJOS (Zona de auto-bloqueo)";
                         dashLiveStatus.style.color = "var(--danger)";
                         if (dashMeterBar) dashMeterBar.style.background = "var(--danger)";
-
-                        // Execute auto-lock if user enabled it and we haven't locked yet
-                        if (autoLockEnabled && !isWorkstationLocked && reading.is_lost) {
-                            isWorkstationLocked = true;
-                            invoke("test_workstation_lock");
-                        }
+                        isWorkstationLocked = true;
                     } else if (reading.rssi >= unlockThreshold) {
                         dashLiveStatus.textContent = "CERCA (En tu escritorio / Desbloqueado)";
                         dashLiveStatus.style.color = "var(--success)";

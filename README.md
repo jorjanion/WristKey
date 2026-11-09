@@ -16,7 +16,7 @@ Similar to native macOS Auto Unlock and Linux `watch-unlock-rs`, WristKey contin
 ## Installation
 
 Download the installer from the **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)** page:
-* `WristKey_0.4.12_x64-setup.exe`
+* `WristKey_0.4.13_x64-setup.exe`
 
 Run the installer to set up the application, desktop shortcut, and system tray background agent.
 
