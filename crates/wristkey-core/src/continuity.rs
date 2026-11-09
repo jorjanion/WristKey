@@ -6,6 +6,7 @@ pub const APPLE_COMPANY_ID: u16 = 0x004C;
 /// Apple Continuity message types.
 pub const TYPE_AIRDROP: u8 = 0x05;
 pub const TYPE_PROXIMITY_PAIRING: u8 = 0x07;
+pub const TYPE_MAGIC_SWITCH: u8 = 0x0B;
 pub const TYPE_HANDOFF: u8 = 0x0C;
 pub const TYPE_NEARBY_INFO: u8 = 0x10;
 pub const TYPE_FIND_MY: u8 = 0x12;
@@ -95,19 +96,18 @@ impl AppleContinuityFrame {
         }
 
         // Prioritize frames:
-        // 1. Nearby Info frames with confirmed watch on wrist & unlocked
-        // 2. Any Apple Watch candidate frame
+        // 0. Confirmed Apple Watch on wrist & unlocked
+        // 1. Any Apple Watch candidate frame
+        // 2. Other Nearby Info frames
         // 3. Handoff or Proximity Pairing frames
         // 4. Any other frame
         frames.sort_by_key(|f| {
-            if f.message_type == TYPE_NEARBY_INFO {
-                if f.is_on_wrist_and_unlocked {
-                    0
-                } else if f.is_apple_watch() {
-                    1
-                } else {
-                    2
-                }
+            if f.is_on_wrist_and_unlocked && f.is_apple_watch() {
+                0
+            } else if f.is_apple_watch() {
+                1
+            } else if f.message_type == TYPE_NEARBY_INFO {
+                2
             } else if f.message_type == TYPE_HANDOFF || f.message_type == TYPE_PROXIMITY_PAIRING {
                 3
             } else {
@@ -122,13 +122,13 @@ impl AppleContinuityFrame {
         let type_name = match message_type {
             TYPE_AIRDROP => "AirDrop",
             TYPE_PROXIMITY_PAIRING => "Proximity Pairing",
+            TYPE_MAGIC_SWITCH => "Magic Switch",
             TYPE_HANDOFF => "Handoff",
             TYPE_NEARBY_INFO => "Nearby Info",
             TYPE_FIND_MY => "Find My",
             0x01 => "iBeacon",
             0x06 => "HomeKit",
             0x08 => "Siri",
-            0x0B => "Trackpad",
             0x0E => "Instant Hotspot",
             0x0F => "Wi-Fi Password",
             _ => "Apple Continuity (Other)",
@@ -193,16 +193,19 @@ impl AppleContinuityFrame {
             };
 
             // An Apple Watch is on wrist and unlocked if:
-            // 1. Explicit action code 0x0A (Watch on wrist & unlocked) and !is_locked, OR
-            // 2. Active watch interaction (0x07 Screen On, 0x0B Recent Interaction) and !is_locked, OR
-            // 3. Apple Watch Auto Unlock capability is active and !is_locked.
-            // If is_locked is true (e.g. watch removed from wrist or locked with passcode), it is NOT on wrist/unlocked.
-            let is_on_wrist = !is_locked && (
-                action_code == ACTION_WATCH_ON_WRIST_UNLOCKED
-                    || action_code == ACTION_SCREEN_ON
-                    || action_code == ACTION_RECENT_INTERACTION
-                    || auto_unlock
-            );
+            // 1. Not locked (!is_locked)
+            // 2. Not a primary iCloud device (iPhone/iPad), unless action code is 0x0A
+            // 3. Exhibits Apple Watch on-wrist telemetry:
+            //    - Explicit action code 0x0A (Watch on wrist & unlocked), OR
+            //    - Auto Unlock capability flag enabled, OR
+            //    - Active watch interaction (0x07 Screen On, 0x0B Recent Interaction) when not primary iCloud
+            let is_watch_active_telemetry = action_code == ACTION_WATCH_ON_WRIST_UNLOCKED
+                || auto_unlock
+                || (!is_primary_icloud
+                    && (action_code == ACTION_SCREEN_ON
+                        || action_code == ACTION_RECENT_INTERACTION));
+
+            let is_on_wrist = !is_locked && is_watch_active_telemetry;
             let is_on_wrist_and_unlocked = is_on_wrist && !is_locked;
 
             Some(Self {
@@ -221,17 +224,16 @@ impl AppleContinuityFrame {
                 raw_payload: raw.to_vec(),
             })
         } else {
-            // Active continuity frames: Handoff (0x0C) when user opens apps or Proximity Pairing (0x07) in BT settings
-            let is_active_continuity = message_type == TYPE_HANDOFF || message_type == TYPE_PROXIMITY_PAIRING;
+            let is_magic_switch = message_type == TYPE_MAGIC_SWITCH;
             Some(Self {
                 message_type,
                 message_type_name: type_name,
                 action_code: None,
                 action_name: None,
-                is_on_wrist: is_active_continuity,
+                is_on_wrist: is_magic_switch,
                 is_locked: false,
-                is_on_wrist_and_unlocked: is_active_continuity,
-                auto_unlock_capable: false,
+                is_on_wrist_and_unlocked: is_magic_switch,
+                auto_unlock_capable: is_magic_switch,
                 wifi_on: false,
                 is_primary_icloud: false,
                 airdrop_enabled: false,
@@ -243,19 +245,26 @@ impl AppleContinuityFrame {
 
     /// Returns true if this frame exhibits Apple Watch specific characteristics or active watch telemetry:
     /// - Action Code 0x0A: Watch on wrist & unlocked
-    /// - Active watch interaction states (0x07 Screen On, 0x0B Recent Interaction) when not locked
+    /// - Active watch interaction states (0x07 Screen On, 0x0B Recent Interaction) when not a primary iCloud device (iPhone)
     /// - Apple Watch Auto Unlock capability flags (Bit 6 or 7)
-    /// - Continuity Handoff (0x0C) or Proximity Pairing (0x07)
+    /// - Magic Switch frames (0x0B)
     pub fn is_apple_watch(&self) -> bool {
         match self.message_type {
             TYPE_NEARBY_INFO => {
+                // If primary iCloud device (iPhone/iPad), it is NOT an Apple Watch
+                // unless it explicitly carries watch-exclusive on-wrist action code 0x0A.
+                if self.is_primary_icloud && self.action_code != Some(ACTION_WATCH_ON_WRIST_UNLOCKED) {
+                    return false;
+                }
+
                 self.action_code == Some(ACTION_WATCH_ON_WRIST_UNLOCKED)
                     || self.auto_unlock_capable
-                    || (self.is_on_wrist && !self.is_locked)
-                    || self.action_code == Some(ACTION_SCREEN_ON)
-                    || self.action_code == Some(ACTION_RECENT_INTERACTION)
+                    || (!self.is_primary_icloud
+                        && (self.action_code == Some(ACTION_SCREEN_ON)
+                            || self.action_code == Some(ACTION_RECENT_INTERACTION)
+                            || (self.is_on_wrist && !self.is_locked)))
             }
-            TYPE_HANDOFF | TYPE_PROXIMITY_PAIRING => true,
+            TYPE_MAGIC_SWITCH => true,
             _ => false,
         }
     }
@@ -321,22 +330,62 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_handoff_and_proximity_pairing() {
-        // Handoff (0x0C) when user opens apps on Apple Watch
+    fn test_parse_nearby_info_iphone_rejected() {
+        // iPhone screen active on desk: action code 0x07 (Screen On), primary iCloud (0x17), unlocked (status 0x04)
+        let raw_iphone = vec![0x10, 0x05, 0x17, 0x04, 0x11, 0x22, 0x33];
+        let frame = AppleContinuityFrame::parse(&raw_iphone).expect("Must parse");
+
+        assert_eq!(frame.action_code, Some(ACTION_SCREEN_ON));
+        assert!(frame.is_primary_icloud);
+        assert!(!frame.is_locked);
+        assert!(!frame.is_on_wrist);
+        assert!(!frame.is_on_wrist_and_unlocked);
+        assert!(!frame.is_apple_watch());
+
+        // iPhone playing video / screen active (action code 0x09)
+        let raw_video = vec![0x10, 0x05, 0x19, 0x04, 0x11, 0x22, 0x33];
+        let frame_video = AppleContinuityFrame::parse(&raw_video).expect("Must parse");
+        assert_eq!(frame_video.action_code, Some(ACTION_SCREEN_ON_VIDEO));
+        assert!(frame_video.is_primary_icloud);
+        assert!(!frame_video.is_apple_watch());
+        assert!(!frame_video.is_on_wrist);
+
+        // iPhone phone call active (action code 0x0E)
+        let raw_call = vec![0x10, 0x05, 0x1E, 0x04, 0x11, 0x22, 0x33];
+        let frame_call = AppleContinuityFrame::parse(&raw_call).expect("Must parse");
+        assert_eq!(frame_call.action_code, Some(ACTION_CALL_ACTIVE));
+        assert!(frame_call.is_primary_icloud);
+        assert!(!frame_call.is_apple_watch());
+        assert!(!frame_call.is_on_wrist);
+    }
+
+    #[test]
+    fn test_parse_handoff_and_airpods_proximity_pairing() {
+        // Standalone Handoff (0x0C)
         let raw_handoff = vec![0x0C, 0x03, 0x01, 0x02, 0x03];
         let frame_handoff = AppleContinuityFrame::parse(&raw_handoff).expect("Must parse");
         assert_eq!(frame_handoff.message_type, TYPE_HANDOFF);
-        assert!(frame_handoff.is_on_wrist);
-        assert!(frame_handoff.is_on_wrist_and_unlocked);
-        assert!(frame_handoff.is_apple_watch());
+        // Standalone frames from unconfirmed MACs do not falsely claim on-wrist
+        assert!(!frame_handoff.is_on_wrist);
+        assert!(!frame_handoff.is_apple_watch());
 
-        // Proximity Pairing (0x07) in BT settings
+        // Proximity Pairing (0x07) from AirPods
         let raw_pairing = vec![0x07, 0x02, 0x01, 0x02];
         let frame_pairing = AppleContinuityFrame::parse(&raw_pairing).expect("Must parse");
         assert_eq!(frame_pairing.message_type, TYPE_PROXIMITY_PAIRING);
-        assert!(frame_pairing.is_on_wrist);
-        assert!(frame_pairing.is_on_wrist_and_unlocked);
-        assert!(frame_pairing.is_apple_watch());
+        assert!(!frame_pairing.is_on_wrist);
+        assert!(!frame_pairing.is_apple_watch());
+    }
+
+    #[test]
+    fn test_parse_magic_switch_watch() {
+        // Magic Switch (0x0B) is Apple Watch-specific
+        let raw_magic = vec![0x0B, 0x03, 0xC4, 0xB5, 0x3F];
+        let frame = AppleContinuityFrame::parse(&raw_magic).expect("Must parse");
+        assert_eq!(frame.message_type, TYPE_MAGIC_SWITCH);
+        assert!(frame.is_apple_watch());
+        assert!(frame.is_on_wrist);
+        assert!(frame.is_on_wrist_and_unlocked);
     }
 
     #[test]
@@ -351,5 +400,6 @@ mod tests {
         assert_eq!(frame.message_type, TYPE_NEARBY_INFO);
         assert_eq!(frame.action_code, Some(ACTION_WATCH_ON_WRIST_UNLOCKED));
         assert!(frame.is_on_wrist_and_unlocked);
+        assert!(frame.is_apple_watch());
     }
 }

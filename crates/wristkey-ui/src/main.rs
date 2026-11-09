@@ -744,5 +744,37 @@ mod tests {
         assert!(discovered[0].on_wrist);
         assert!(discovered[0].is_confirmed_watch);
     }
+
+    #[test]
+    fn test_iphone_active_screen_on_not_discovered() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        if let Ok(mut lock) = DEVICES.lock() {
+            lock.clear();
+
+            // iPhone active with screen on on desk: rejected by scanner, not confirmed, not on wrist
+            lock.insert(
+                "AA:BB:CC:DD:EE:06".to_string(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: "AA:BB:CC:DD:EE:06".to_string(),
+                        name: "iPhone (Activo / Pantalla encendida)".to_string(),
+                        rssi: -42,
+                        on_wrist: false,
+                        is_unlocked: true,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: false,
+                        is_confirmed_watch: false,
+                        device_type: "apple_device".to_string(),
+                        last_seen_ms_ago: 0,
+                    },
+                    last_seen: Instant::now(),
+                    smoothed_rssi_f32: -42.0,
+                },
+            );
+        }
+
+        let discovered = get_discovered_devices();
+        assert_eq!(discovered.len(), 0);
+    }
 }
 
