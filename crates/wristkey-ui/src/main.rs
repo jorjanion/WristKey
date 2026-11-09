@@ -22,6 +22,17 @@ pub struct DiscoveredDeviceDto {
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
+pub struct ProximityReadingDto {
+    pub rssi: f32,
+    pub smoothed_rssi: f32,
+    pub distance_meters: f32,
+    pub is_near: bool,
+    pub is_lost: bool,
+    pub seconds_since_last_packet: f32,
+    pub status_text: String,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
 pub struct UpdateInfo {
     pub current_version: String,
     pub latest_version: String,
@@ -56,6 +67,74 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
     // Sort strictly by RSSI descending (strongest / closest device always first)
     results.sort_by(|a, b| b.rssi.cmp(&a.rssi));
     results
+}
+
+#[tauri::command]
+fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
+    let now = Instant::now();
+    if let Ok(lock) = DEVICES.lock() {
+        let target = if let Some(ref m) = mac {
+            lock.get(m).or_else(|| {
+                let mut v: Vec<_> = lock.values().collect();
+                v.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
+                v.first().copied()
+            })
+        } else {
+            let mut v: Vec<_> = lock.values().collect();
+            v.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
+            v.first().copied()
+        };
+
+        if let Some(entry) = target {
+            let elapsed_secs = now.duration_since(entry.last_seen).as_secs_f32();
+
+            // Responsive Signal Decay: If user steps away and packets stop arriving,
+            // signal naturally drops towards -95 dBm
+            let effective_rssi = if elapsed_secs > 1.8 {
+                let decay = (elapsed_secs - 1.8) * 8.0;
+                (entry.device.rssi as f32 - decay).max(-95.0)
+            } else {
+                entry.device.rssi as f32
+            };
+
+            // Distance estimation (path loss model with desk anchor)
+            let ratio = (-50.0 - effective_rssi) / (10.0 * 2.5);
+            let distance_meters = (10.0_f32).powf(ratio).clamp(0.2, 10.0);
+
+            let is_lost = elapsed_secs > 4.5 || effective_rssi <= -88.0;
+            let is_near = effective_rssi >= -62.0 && !is_lost;
+
+            let status_text = if is_lost {
+                "LEJOS / SIN SEÑAL (Zona de bloqueo)".to_string()
+            } else if is_near {
+                "CERCA (En tu escritorio / Desbloqueado)".to_string()
+            } else if effective_rssi <= -80.0 {
+                "LEJOS (Alejándote)".to_string()
+            } else {
+                "ZONA MEDIA (En la habitación)".to_string()
+            };
+
+            return ProximityReadingDto {
+                rssi: effective_rssi,
+                smoothed_rssi: effective_rssi,
+                distance_meters,
+                is_near,
+                is_lost,
+                seconds_since_last_packet: elapsed_secs,
+                status_text,
+            };
+        }
+    }
+
+    ProximityReadingDto {
+        rssi: -95.0,
+        smoothed_rssi: -95.0,
+        distance_meters: 8.0,
+        is_near: false,
+        is_lost: true,
+        seconds_since_last_packet: 10.0,
+        status_text: "SIN SEÑAL (Coloca tu reloj cerca)".to_string(),
+    }
 }
 
 #[tauri::command]
@@ -218,7 +297,7 @@ fn start_background_scanner() {
                 log::info!("Live WinRT BLE scanner started for UI");
                 while let Ok(event) = rx.recv() {
                     if let Some(frame) = event.apple_frame {
-                        // STRICT FILTER: Only accept Apple Watch candidates (Apple Continuity 0x10 Nearby Info)
+                        // STRICT FILTER: Only accept Apple Watch candidates (Nearby Info 0x10)
                         if frame.message_type != 0x10 {
                             continue;
                         }
@@ -233,7 +312,6 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
-                        // Clear naming: distinction between confirmed wrist vs nearby device
                         let name = if frame.is_on_wrist_and_unlocked {
                             "Apple Watch (En muñeca y desbloqueado)".to_string()
                         } else if frame.is_on_wrist {
@@ -246,7 +324,8 @@ fn start_background_scanner() {
 
                         if let Ok(mut lock) = DEVICES.lock() {
                             let smoothed_rssi = if let Some(existing) = lock.get(&mac_str) {
-                                ((existing.device.rssi as f32 * 0.7) + (event.rssi as f32 * 0.3)).round() as i16
+                                // Responsive smoothing: 50% existing + 50% new to track real movement
+                                ((existing.device.rssi as f32 * 0.5) + (event.rssi as f32 * 0.5)).round() as i16
                             } else {
                                 event.rssi
                             };
@@ -288,6 +367,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_discovered_devices,
             get_device_rssi,
+            get_live_proximity,
             is_running_as_admin,
             relaunch_as_admin,
             check_for_updates,

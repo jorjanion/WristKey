@@ -433,51 +433,44 @@ function startLiveUpdates() {
     setInterval(async () => {
         if (!isScanning) return;
 
-        if (selectedMac) {
-            try {
-                const liveRssi = await invoke("get_device_rssi", { mac: selectedMac });
-                if (liveRssi !== null && liveRssi !== undefined) {
-                    currentRssi = liveRssi;
+        try {
+            const reading = await invoke("get_live_proximity", { mac: selectedMac });
+            if (reading) {
+                currentRssi = reading.rssi;
+
+                // Update Calibration Meter
+                const elRssi = document.getElementById("cal-rssi-value");
+                const elBar = document.getElementById("cal-meter-bar");
+                const elDist = document.getElementById("cal-dist-est");
+                const elState = document.getElementById("cal-state-tag");
+
+                if (elRssi) elRssi.textContent = reading.rssi.toFixed(1);
+                if (elDist) elDist.textContent = `~${reading.distance_meters.toFixed(1)}m`;
+
+                // Dynamic Percentage: maps -95 dBm (0%) to -45 dBm (100%)
+                const pct = Math.min(100, Math.max(0, ((reading.rssi - (-95)) / 50) * 100));
+                if (elBar) elBar.style.width = `${pct}%`;
+
+                if (elState) {
+                    elState.textContent = reading.status_text;
+                    if (reading.is_lost || reading.rssi <= lockThreshold) {
+                        elState.className = "tag-far";
+                        elState.style.color = "var(--danger)";
+                    } else if (reading.is_near) {
+                        elState.className = "tag-near";
+                        elState.style.color = "var(--success)";
+                    } else {
+                        elState.className = "tag-mid";
+                        elState.style.color = "var(--warning)";
+                    }
                 }
-            } catch (_) {}
-        }
 
-        // Update Calibration Meter
-        const elRssi = document.getElementById("cal-rssi-value");
-        const elBar = document.getElementById("cal-meter-bar");
-        const elDist = document.getElementById("cal-dist-est");
-        const elState = document.getElementById("cal-state-tag");
-
-        if (elRssi) elRssi.textContent = currentRssi.toFixed(1);
-
-        // Convert RSSI (-100 to -40) to percentage
-        const pct = Math.min(100, Math.max(0, ((currentRssi - (-100)) / 60) * 100));
-        if (elBar) elBar.style.width = `${pct}%`;
-
-        // Calculate distance
-        const ratio = (-59 - currentRssi) / (10 * 2.5);
-        const dist = Math.pow(10, ratio);
-        if (elDist) elDist.textContent = `~${dist.toFixed(1)}m`;
-
-        if (elState) {
-            if (currentRssi >= unlockThreshold) {
-                elState.textContent = "CERCA (Listo para desbloquear)";
-                elState.className = "tag-near";
-            } else if (currentRssi <= lockThreshold) {
-                elState.textContent = "LEJOS (Zona de auto-bloqueo)";
-                elState.className = "tag-far";
-                elState.style.color = "var(--danger)";
-            } else {
-                elState.textContent = "ZONA MEDIA (Histéresis)";
-                elState.className = "tag-mid";
-                elState.style.color = "var(--warning)";
+                // Update Dashboard Values
+                const dashRssi = document.getElementById("dash-rssi");
+                const dashDist = document.getElementById("dash-dist");
+                if (dashRssi) dashRssi.textContent = `${reading.rssi.toFixed(1)} dBm`;
+                if (dashDist) dashDist.textContent = `~${reading.distance_meters.toFixed(1)} m`;
             }
-        }
-
-        // Update Dashboard Values
-        const dashRssi = document.getElementById("dash-rssi");
-        const dashDist = document.getElementById("dash-dist");
-        if (dashRssi) dashRssi.textContent = `${currentRssi.toFixed(1)} dBm`;
-        if (dashDist) dashDist.textContent = `~${dist.toFixed(1)} m`;
-    }, 800);
+        } catch (_) {}
+    }, 350);
 }
