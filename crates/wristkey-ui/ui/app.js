@@ -109,7 +109,7 @@ async function checkForUpdates() {
         });
         if (response.ok) {
             const release = await response.json();
-            const currentVersion = "0.4.13";
+            const currentVersion = "0.4.14";
             const tag = release.tag_name || "";
             const latestClean = tag.replace(/^v/, "");
 
@@ -640,12 +640,18 @@ function startLiveUpdates() {
                 }
 
                 if (dashWrist) {
-                    if (reading.is_confirmed_watch && !reading.is_lost) {
+                    if (reading.is_confirmed_watch && reading.on_wrist && reading.is_unlocked && !reading.is_lost) {
                         dashWrist.textContent = "En muñeca (Desbloqueado)";
                         dashWrist.className = "dash-val green";
+                        dashWrist.style.color = "";
+                    } else if (reading.is_confirmed_watch && (!reading.on_wrist || !reading.is_unlocked)) {
+                        dashWrist.textContent = "Fuera de muñeca / Bloqueado";
+                        dashWrist.className = "dash-val";
+                        dashWrist.style.color = "var(--danger)";
                     } else {
                         dashWrist.textContent = "Buscando reloj...";
                         dashWrist.className = "dash-val";
+                        dashWrist.style.color = "";
                     }
                 }
 

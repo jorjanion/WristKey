@@ -38,6 +38,8 @@ pub struct ProximityReadingDto {
     pub current_mac: String,
     pub device_name: String,
     pub is_confirmed_watch: bool,
+    pub on_wrist: bool,
+    pub is_unlocked: bool,
     pub rssi: f32,
     pub smoothed_rssi: f32,
     pub distance_meters: f32,
@@ -220,11 +222,13 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
         if let Some(entry) = target {
             let elapsed_secs = now.duration_since(entry.last_seen).as_secs_f32();
 
-            // FAST PHYSICAL SIGNAL DECAY WHEN WALKING AWAY:
-            // 0s to 2.0s: Normal BLE advertisement interval on wrist (covers idle screen sleep).
-            // > 2.0s: User walking out of range / packets stopped. Snappy linear decay (5 dB/s).
-            let effective_rssi = if elapsed_secs > 2.0 {
-                let fade = (elapsed_secs - 2.0) * 5.0;
+            // NATURAL WATCHOS IDLE BLE WINDOW:
+            // 0s to 8.0s: Covers normal watchOS screen-off advertisement intervals (4-8s).
+            //             Signal remains completely steady at smoothed RSSI without false drops.
+            // 8.0s to 18.0s: User walking out of Bluetooth range or left the room. Smooth linear decay (3 dB/s).
+            // > 18.0s: Device is completely out of range / disconnected.
+            let effective_rssi = if elapsed_secs > 8.0 {
+                let fade = (elapsed_secs - 8.0) * 3.0;
                 (entry.smoothed_rssi_f32 - fade).max(-88.0)
             } else {
                 entry.smoothed_rssi_f32
@@ -235,8 +239,8 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
             let ratio = (-58.0 - effective_rssi) / (10.0 * 2.4);
             let distance_meters = (10.0_f32).powf(ratio).clamp(0.3, 8.0);
 
-            let is_lost = elapsed_secs > 5.0 || effective_rssi <= -78.0;
-            let is_near = effective_rssi >= -60.0 && !is_lost;
+            let is_lost = elapsed_secs > 18.0 || effective_rssi <= -80.0;
+            let is_near = effective_rssi >= -62.0 && !is_lost;
 
             let status_text = if is_lost {
                 "LEJOS / SIN SEÑAL (Zona de bloqueo)".to_string()
@@ -252,6 +256,8 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
                 current_mac: entry.device.mac.clone(),
                 device_name: entry.device.name.clone(),
                 is_confirmed_watch: entry.device.is_confirmed_watch,
+                on_wrist: entry.device.on_wrist,
+                is_unlocked: entry.device.is_unlocked,
                 rssi: effective_rssi,
                 smoothed_rssi: effective_rssi,
                 distance_meters,
@@ -267,6 +273,8 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
         current_mac: "".to_string(),
         device_name: "Buscando tu Apple Watch...".to_string(),
         is_confirmed_watch: false,
+        on_wrist: false,
+        is_unlocked: false,
         rssi: -88.0,
         smoothed_rssi: -88.0,
         distance_meters: 8.0,
@@ -549,7 +557,7 @@ fn start_background_scanner() {
 
                         if let Ok(mut lock) = DEVICES.lock() {
                             let was_already_watch = lock.get(&mac_str).map_or(false, |e| e.device.is_confirmed_watch);
-                            let is_on_wrist = !frame.is_locked && (frame.is_on_wrist || was_already_watch);
+                            let is_on_wrist = frame.is_on_wrist_and_unlocked;
                             let is_confirmed_watch = was_already_watch || frame.is_confirmed_apple_watch() || is_on_wrist;
 
                             let name = if is_on_wrist {
@@ -648,11 +656,15 @@ fn update_engine_settings(new_settings: EngineSettings) -> Result<(), String> {
 fn start_native_proximity_engine() {
     std::thread::spawn(|| {
         log::info!("WristKey Native Proximity Lock/Unlock Engine started");
+        let startup_time = Instant::now();
+        let mut session_armed = false;
         let mut consecutive_away_ticks: u32 = 0;
         let mut consecutive_near_ticks: u32 = 0;
+        let mut lock_cooldown_until = Instant::now();
 
         loop {
             std::thread::sleep(std::time::Duration::from_millis(400));
+            let now = Instant::now();
 
             let settings = if let Ok(s) = ENGINE_SETTINGS.lock() {
                 s.clone()
@@ -663,50 +675,76 @@ fn start_native_proximity_engine() {
             let reading = get_live_proximity(settings.tracked_mac.clone());
             let currently_locked = IS_LOCKED.load(Ordering::SeqCst);
 
+            // ARMING LOGIC:
+            // Protection ONLY arms when the user's watch is confirmed in desk proximity (< 2m, on-wrist).
+            // If the watch is not connected or in another room on startup, we do NOT lock the PC!
+            if !session_armed {
+                if reading.is_near && (!settings.require_on_wrist || reading.is_confirmed_watch) {
+                    session_armed = true;
+                    log::info!(
+                        "[NATIVE ENGINE] Session ARMED: Apple Watch confirmed at desk ({:.1} dBm). Proximity protection active!",
+                        reading.rssi
+                    );
+                }
+            }
+
             // EVALUATE AUTO-LOCK:
-            if settings.auto_lock_enabled && !currently_locked {
-                let has_target = settings.tracked_mac.is_some() || !reading.current_mac.is_empty();
+            // Must be enabled, not currently locked, beyond startup grace period (12s),
+            // past any lock cooldown, and the session must have been armed at least once!
+            if settings.auto_lock_enabled
+                && !currently_locked
+                && session_armed
+                && now.duration_since(startup_time).as_secs() >= 12
+                && now >= lock_cooldown_until
+            {
+                // Criteria for being "Away":
+                // 1. Device is lost (> 18s of silence / out of range)
+                // 2. Smoothed RSSI has fallen below lock_threshold_dbm (e.g. <= -74 dBm)
+                // 3. (If require_on_wrist) watch has been removed from wrist / locked for >= 3s
+                let is_away = reading.is_lost
+                    || reading.rssi <= settings.lock_threshold_dbm as f32
+                    || (settings.require_on_wrist && !reading.is_confirmed_watch && reading.seconds_since_last_packet > 3.0);
 
-                if has_target {
-                    let is_away = reading.is_lost
-                        || reading.rssi <= settings.lock_threshold_dbm as f32
-                        || (settings.require_on_wrist && !reading.is_confirmed_watch && reading.seconds_since_last_packet > 3.0);
-
-                    if is_away {
-                        consecutive_away_ticks += 1;
-                        if consecutive_away_ticks >= 2 {
-                            log::warn!(
-                                "[NATIVE ENGINE] Auto-Lock triggered! RSSI: {:.1} dBm, Elapsed: {:.1}s, IsLost: {}",
-                                reading.rssi, reading.seconds_since_last_packet, reading.is_lost
-                            );
-                            if lock_workstation().is_ok() {
-                                IS_LOCKED.store(true, Ordering::SeqCst);
-                                consecutive_away_ticks = 0;
-                            }
+                if is_away {
+                    consecutive_away_ticks += 1;
+                    // Require 7 consecutive ticks (~2.8 seconds) of confirmed departure
+                    // to completely filter out any momentary BLE packet collisions.
+                    if consecutive_away_ticks >= 7 {
+                        log::warn!(
+                            "[NATIVE ENGINE] Auto-Lock triggered! RSSI: {:.1} dBm, Elapsed: {:.1}s, IsLost: {}",
+                            reading.rssi, reading.seconds_since_last_packet, reading.is_lost
+                        );
+                        if lock_workstation().is_ok() {
+                            IS_LOCKED.store(true, Ordering::SeqCst);
+                            consecutive_away_ticks = 0;
+                            lock_cooldown_until = now + std::time::Duration::from_secs(12);
                         }
-                    } else {
-                        consecutive_away_ticks = 0;
                     }
+                } else {
+                    consecutive_away_ticks = 0;
                 }
             }
 
             // EVALUATE AUTO-UNLOCK:
             if settings.auto_unlock_enabled && currently_locked {
                 let is_near = !reading.is_lost
-                    && reading.seconds_since_last_packet < 2.0
+                    && reading.seconds_since_last_packet < 2.5
                     && reading.rssi >= settings.unlock_threshold_dbm as f32
                     && (!settings.require_on_wrist || reading.is_confirmed_watch);
 
                 if is_near {
                     consecutive_near_ticks += 1;
-                    if consecutive_near_ticks >= 2 {
+                    // Require 3 consecutive ticks (~1.2s) of solid strong desk signal
+                    if consecutive_near_ticks >= 3 {
                         log::info!(
                             "[NATIVE ENGINE] Auto-Unlock: Watch back in close desk range ({:.1} dBm). Waking display!",
                             reading.rssi
                         );
                         LockScreenController::wake_and_prompt_logon();
                         IS_LOCKED.store(false, Ordering::SeqCst);
+                        session_armed = true;
                         consecutive_near_ticks = 0;
+                        lock_cooldown_until = now + std::time::Duration::from_secs(12);
                     }
                 } else {
                     consecutive_near_ticks = 0;
@@ -1116,7 +1154,7 @@ mod tests {
         if let Ok(mut lock) = DEVICES.lock() {
             lock.clear();
 
-            // User walked away: user's watch went silent (seen 3.5s ago)
+            // User walked away: user's watch went silent (seen 10s ago)
             lock.insert(
                 user_mac.clone(),
                 DeviceEntry {
@@ -1130,9 +1168,9 @@ mod tests {
                         is_watch_candidate: true,
                         is_confirmed_watch: true,
                         device_type: "apple_watch".to_string(),
-                        last_seen_ms_ago: 3500,
+                        last_seen_ms_ago: 10000,
                     },
-                    last_seen: Instant::now() - std::time::Duration::from_millis(3500),
+                    last_seen: Instant::now() - std::time::Duration::from_millis(10000),
                     smoothed_rssi_f32: -58.0,
                 },
             );
