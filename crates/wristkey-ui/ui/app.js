@@ -403,8 +403,8 @@ function initCalibrationSliders() {
 }
 
 function updateThresholdMarkers() {
-    const minRssi = -80;
-    const maxRssi = -48;
+    const minRssi = -82;
+    const maxRssi = -40;
     const unlockPct = Math.min(100, Math.max(0, ((unlockThreshold - minRssi) / (maxRssi - minRssi)) * 100));
     const lockPct = Math.min(100, Math.max(0, ((lockThreshold - minRssi) / (maxRssi - minRssi)) * 100));
 
@@ -487,7 +487,9 @@ function startLiveUpdates() {
                 if (elTrackedMac && reading.current_mac) elTrackedMac.textContent = reading.current_mac;
 
                 if (reading.current_mac && reading.is_confirmed_watch) {
-                    selectedMac = reading.current_mac;
+                    if (!selectedMac) {
+                        selectedMac = reading.current_mac;
+                    }
                 }
 
                 // Update Calibration Meter
@@ -499,9 +501,9 @@ function startLiveUpdates() {
                 if (elRssi) elRssi.textContent = reading.rssi.toFixed(1);
                 if (elDist) elDist.textContent = `~${reading.distance_meters.toFixed(1)}m`;
 
-                // Dynamic Percentage: maps -80 dBm (0%) to -48 dBm (100%)
-                const minRssi = -80;
-                const maxRssi = -48;
+                // Dynamic Percentage: maps -82 dBm (0%) to -40 dBm (100%)
+                const minRssi = -82;
+                const maxRssi = -40;
                 const pct = Math.min(100, Math.max(0, ((reading.rssi - minRssi) / (maxRssi - minRssi)) * 100));
                 if (elBar) elBar.style.width = `${pct}%`;
 

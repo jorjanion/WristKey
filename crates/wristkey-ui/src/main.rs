@@ -59,8 +59,8 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
     let mut results = Vec::new();
 
     if let Ok(mut lock) = DEVICES.lock() {
-        // Drop devices not seen in the last 6 seconds (removes stale/rotated MACs quickly)
-        lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 6);
+        // Drop devices not seen in the last 12 seconds (ample window for idle watch BLE intervals)
+        lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 12);
 
         for entry in lock.values() {
             let mut dev = entry.device.clone();
@@ -84,21 +84,14 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
 fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
     let now = Instant::now();
     if let Ok(lock) = DEVICES.lock() {
-        // Priority for target tracking:
-        // 1. If mac is provided, check if it exists and was seen recently (< 3.0s ago)
-        // 2. If mac was not seen recently or rotated, find the best confirmed Apple Watch
-        // 3. Fallback to any Apple device
+        // Find the target to monitor:
+        // If a specific MAC is given, monitor THAT device without hopping around!
         let target = if let Some(ref m) = mac {
-            let direct = lock.get(m).filter(|e| now.duration_since(e.last_seen).as_secs_f32() < 3.0);
-            direct.or_else(|| {
-                // Find confirmed watch (NOT iPhone!)
+            lock.get(m).or_else(|| {
+                // Only if the specific MAC does not exist at all, pick the closest confirmed watch
                 let mut watches: Vec<_> = lock.values().filter(|e| e.device.is_confirmed_watch).collect();
                 watches.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
-                watches.first().copied().or_else(|| {
-                    let mut all: Vec<_> = lock.values().collect();
-                    all.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
-                    all.first().copied()
-                })
+                watches.first().copied()
             })
         } else {
             let mut watches: Vec<_> = lock.values().filter(|e| e.device.is_confirmed_watch).collect();
@@ -113,21 +106,23 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
         if let Some(entry) = target {
             let elapsed_secs = now.duration_since(entry.last_seen).as_secs_f32();
 
-            // Responsive Signal Decay: If user steps away and packets stop arriving,
-            // signal decays progressively towards -92 dBm
-            let effective_rssi = if elapsed_secs > 1.2 {
-                let decay = (elapsed_secs - 1.2) * 12.0;
-                (entry.device.rssi as f32 - decay).max(-92.0)
+            // NATURAL SIGNAL RETENTION & SMOOTH OUT-OF-RANGE TRANSITION:
+            // 0s to 4.5s: Normal BLE advertisement interval. Signal is STABLE at measured RSSI.
+            // 4.5s to 9.0s: User has walked out of range / packets dropped. Signal gently fades towards -88 dBm.
+            // > 9.0s: Completely lost / disconnected.
+            let effective_rssi = if elapsed_secs > 4.5 {
+                let fade = (elapsed_secs - 4.5) * 5.0; // Fades at 5 dBm per second after 4.5s
+                (entry.device.rssi as f32 - fade).max(-88.0)
             } else {
                 entry.device.rssi as f32
             };
 
             // Distance estimation (path loss model with desk anchor)
-            let ratio = (-52.0 - effective_rssi) / (10.0 * 2.2);
+            let ratio = (-48.0 - effective_rssi) / (10.0 * 2.2);
             let distance_meters = (10.0_f32).powf(ratio).clamp(0.2, 8.0);
 
-            let is_lost = elapsed_secs > 3.0 || effective_rssi <= -78.0;
-            let is_near = effective_rssi >= -60.0 && !is_lost;
+            let is_lost = elapsed_secs > 7.0 || effective_rssi <= -80.0;
+            let is_near = effective_rssi >= -58.0 && !is_lost;
 
             let status_text = if is_lost {
                 "LEJOS / SIN SEÑAL (Zona de bloqueo)".to_string()
@@ -158,8 +153,8 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
         current_mac: "".to_string(),
         device_name: "Buscando reloj...".to_string(),
         is_confirmed_watch: false,
-        rssi: -92.0,
-        smoothed_rssi: -92.0,
+        rssi: -88.0,
+        smoothed_rssi: -88.0,
         distance_meters: 8.0,
         is_near: false,
         is_lost: true,
@@ -343,28 +338,29 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
-                        let is_confirmed_watch = frame.is_apple_watch();
-                        let device_type = if is_confirmed_watch {
-                            "apple_watch".to_string()
-                        } else {
-                            "apple_device".to_string()
-                        };
-
-                        let name = if frame.is_on_wrist_and_unlocked {
-                            "Apple Watch (En muñeca y desbloqueado)".to_string()
-                        } else if frame.is_on_wrist {
-                            "Apple Watch (En muñeca, bloqueado)".to_string()
-                        } else if is_confirmed_watch {
-                            "Apple Watch".to_string()
-                        } else {
-                            "iPhone / iPad (Continuity)".to_string()
-                        };
-
                         if let Ok(mut lock) = DEVICES.lock() {
+                            let was_already_watch = lock.get(&mac_str).map_or(false, |e| e.device.is_confirmed_watch);
+                            let is_confirmed_watch = was_already_watch || frame.is_apple_watch();
+                            let device_type = if is_confirmed_watch {
+                                "apple_watch".to_string()
+                            } else {
+                                "apple_device".to_string()
+                            };
+
+                            let name = if frame.is_on_wrist_and_unlocked {
+                                "Apple Watch (En muñeca y desbloqueado)".to_string()
+                            } else if frame.is_on_wrist {
+                                "Apple Watch (En muñeca, bloqueado)".to_string()
+                            } else if is_confirmed_watch {
+                                "Apple Watch".to_string()
+                            } else {
+                                "iPhone / iPad (Continuity)".to_string()
+                            };
+
                             let smoothed_rssi = if let Some(existing) = lock.get(&mac_str) {
                                 let diff = (event.rssi - existing.device.rssi).abs();
                                 // Responsive dynamic smoothing: if moving (diff >= 3 dBm), take 70% of new reading immediately
-                                let alpha = if diff >= 3 { 0.70 } else { 0.45 };
+                                let alpha = if diff >= 3 { 0.70 } else { 0.40 };
                                 ((existing.device.rssi as f32 * (1.0 - alpha)) + (event.rssi as f32 * alpha)).round() as i16
                             } else {
                                 event.rssi
@@ -374,7 +370,7 @@ fn start_background_scanner() {
                                 mac: mac_str.clone(),
                                 name,
                                 rssi: smoothed_rssi,
-                                on_wrist: frame.is_on_wrist,
+                                on_wrist: frame.is_on_wrist || is_confirmed_watch,
                                 is_unlocked: !frame.is_locked,
                                 frame_type: "Nearby Info (0x10)".to_string(),
                                 is_watch_candidate: is_confirmed_watch,
