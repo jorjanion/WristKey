@@ -35,15 +35,44 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(checkForUpdates, 3000);
 });
 
-// Auto-Updater (Silently checks GitHub releases without flashing CMD or blocking startup)
+// Auto-Updater (Silently checks GitHub releases via native fetch; zero process spawns, no CMD window, instant startup)
 async function checkForUpdates() {
     try {
-        const update = await invoke("check_for_updates");
-        if (update) {
-            showUpdateBanner(update);
+        const response = await fetch("https://api.github.com/repos/jorjanion/WristKey/releases/latest", {
+            headers: { "Accept": "application/vnd.github.v3+json" }
+        });
+        if (response.ok) {
+            const release = await response.json();
+            const currentVersion = "0.4.8";
+            const tag = release.tag_name || "";
+            const latestClean = tag.replace(/^v/, "");
+
+            if (latestClean && latestClean !== currentVersion) {
+                let downloadUrl = release.html_url || "";
+                if (Array.isArray(release.assets)) {
+                    for (const asset of release.assets) {
+                        if (asset.name && asset.name.endsWith(".exe")) {
+                            downloadUrl = asset.browser_download_url;
+                            break;
+                        }
+                    }
+                }
+
+                showUpdateBanner({
+                    current_version: currentVersion,
+                    latest_version: tag,
+                    download_url: downloadUrl,
+                    release_notes: release.body || ""
+                });
+                return;
+            }
         }
-    } catch (e) {
-        console.log("Update check info:", e);
+    } catch (_) {
+        // Fallback to background invoke completely silently
+        try {
+            const update = await invoke("check_for_updates");
+            if (update) showUpdateBanner(update);
+        } catch (_) {}
     }
 }
 
@@ -388,9 +417,7 @@ function startLiveUpdates() {
                 if (elTrackedMac && reading.current_mac) elTrackedMac.textContent = reading.current_mac;
 
                 if (reading.current_mac && reading.is_confirmed_watch) {
-                    if (!selectedMac) {
-                        selectedMac = reading.current_mac;
-                    }
+                    selectedMac = reading.current_mac;
                 }
 
                 // Update Calibration Meter

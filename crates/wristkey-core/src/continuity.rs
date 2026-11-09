@@ -139,12 +139,10 @@ impl AppleContinuityFrame {
                 None
             };
 
-            // An Apple Watch is on-wrist if action code indicates 0x0A, or if active and not locked
-            let is_on_wrist = action_code == ACTION_WATCH_ON_WRIST_UNLOCKED
-                || (auto_unlock && !is_locked);
-
-            let is_on_wrist_and_unlocked = (action_code == ACTION_WATCH_ON_WRIST_UNLOCKED || is_on_wrist)
-                && !is_locked;
+            // An Apple Watch is on-wrist strictly when action code is 0x0A (Watch on wrist & unlocked).
+            // iPhones, iPads, and Macs NEVER emit action code 0x0A.
+            let is_on_wrist = action_code == ACTION_WATCH_ON_WRIST_UNLOCKED;
+            let is_on_wrist_and_unlocked = action_code == ACTION_WATCH_ON_WRIST_UNLOCKED && !is_locked;
 
             Some(Self {
                 message_type,
@@ -181,12 +179,10 @@ impl AppleContinuityFrame {
     }
 
     /// Returns true if this frame exhibits Apple Watch specific characteristics
-    /// (e.g. Action Code 0x0A: Watch on wrist, or Auto Unlock capability bit).
+    /// (strictly Action Code 0x0A: Watch on wrist & unlocked).
     pub fn is_apple_watch(&self) -> bool {
         self.message_type == TYPE_NEARBY_INFO
-            && (self.action_code == Some(ACTION_WATCH_ON_WRIST_UNLOCKED)
-                || self.auto_unlock_capable
-                || self.is_on_wrist)
+            && self.action_code == Some(ACTION_WATCH_ON_WRIST_UNLOCKED)
     }
 }
 
@@ -221,5 +217,20 @@ mod tests {
         assert_eq!(frame.action_code, Some(ACTION_IDLE));
         assert!(frame.is_locked);
         assert!(!frame.is_on_wrist_and_unlocked);
+        assert!(!frame.is_on_wrist);
+        assert!(!frame.is_apple_watch());
+    }
+
+    #[test]
+    fn test_parse_nearby_info_iphone_rejected() {
+        // iPhone screen active on desk: action code 0x07 (Screen On), unlocked (status 0x44)
+        let raw = vec![0x10, 0x05, 0x07, 0x44, 0x11, 0x22, 0x33];
+        let frame = AppleContinuityFrame::parse(&raw).expect("Must parse");
+
+        assert_eq!(frame.action_code, Some(ACTION_SCREEN_ON));
+        assert!(!frame.is_locked);
+        assert!(!frame.is_on_wrist);
+        assert!(!frame.is_on_wrist_and_unlocked);
+        assert!(!frame.is_apple_watch());
     }
 }

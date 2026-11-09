@@ -82,14 +82,11 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
     // Sort order: Closest Apple Watch first (highest RSSI)
     results.sort_by(|a, b| b.rssi.cmp(&a.rssi));
 
-    // If an Apple Watch is detected in close proximity (RSSI >= -75 dBm),
-    // prune distant watches (e.g. RSSI < -80 dBm or > 12 dBm weaker than the nearby watch)
-    // so ONLY the user's Apple Watch appears in discovery.
-    if let Some(closest) = results.first() {
-        if closest.rssi >= -75 {
-            let cutoff = closest.rssi - 12;
-            results.retain(|d| d.rssi >= cutoff && d.rssi > -80);
-        }
+    // The user explicitly requires that ONLY their Apple Watch appear in the scan:
+    // If multiple watches exist in the house (e.g. user's watch at desk, father's watch in adjacent room),
+    // strictly isolate the user's Apple Watch (the closest one at the desk).
+    if !results.is_empty() {
+        results.truncate(1);
     }
 
     results
@@ -99,18 +96,35 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
 fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
     let now = Instant::now();
     if let Ok(lock) = DEVICES.lock() {
-        // Find the target to monitor:
-        // Prioritize tracking the specified MAC if present.
-        // If not found or not provided, pick the closest confirmed Apple Watch on wrist.
+        // Target tracking with seamless RPA MAC rotation handling:
         let target = if let Some(ref m) = mac {
-            lock.get(m).or_else(|| {
+            if let Some(entry) = lock.get(m) {
+                let elapsed = now.duration_since(entry.last_seen).as_secs_f32();
+                if elapsed >= 3.0 {
+                    // Check if the watch rotated its MAC address:
+                    // Look for another confirmed on-wrist watch seen much more recently (< 2.5s ago)
+                    let fresh_watch = lock
+                        .values()
+                        .filter(|e| {
+                            e.device.mac != *m
+                                && e.device.is_confirmed_watch
+                                && e.device.on_wrist
+                                && now.duration_since(e.last_seen).as_secs_f32() < 2.5
+                        })
+                        .max_by(|a, b| a.device.rssi.cmp(&b.device.rssi));
+
+                    Some(fresh_watch.unwrap_or(entry))
+                } else {
+                    Some(entry)
+                }
+            } else {
                 let mut watches: Vec<_> = lock
                     .values()
                     .filter(|e| e.device.is_confirmed_watch && e.device.on_wrist)
                     .collect();
                 watches.sort_by(|a, b| b.device.rssi.cmp(&a.device.rssi));
                 watches.first().copied()
-            })
+            }
         } else {
             let mut watches: Vec<_> = lock
                 .values()
@@ -124,11 +138,12 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
             let elapsed_secs = now.duration_since(entry.last_seen).as_secs_f32();
 
             // NATURAL SIGNAL RETENTION & SMOOTH OUT-OF-RANGE TRANSITION:
-            // 0s to 4.0s: Normal BLE advertisement interval on wrist. Signal is 100% STABLE at smoothed value.
-            // 4.0s to 8.5s: User walking out of range / packets dropped. Gentle smooth linear decay.
-            // > 8.5s: Completely lost / disconnected.
-            let effective_rssi = if elapsed_secs > 4.0 {
-                let fade = (elapsed_secs - 4.0) * 3.5;
+            // 0s to 6.0s: Normal BLE advertisement interval on wrist (covers idle screen sleep & dropped packet leeway).
+            //             Signal remains 100% ROCK SOLID at smoothed value without yo-yo drops.
+            // 6.0s to 10.0s: User walking out of range / packets stopped. Gentle smooth linear decay.
+            // > 10.0s: Completely lost / disconnected.
+            let effective_rssi = if elapsed_secs > 6.0 {
+                let fade = (elapsed_secs - 6.0) * 3.0;
                 (entry.smoothed_rssi_f32 - fade).max(-88.0)
             } else {
                 entry.smoothed_rssi_f32
@@ -139,7 +154,7 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
             let ratio = (-58.0 - effective_rssi) / (10.0 * 2.4);
             let distance_meters = (10.0_f32).powf(ratio).clamp(0.3, 8.0);
 
-            let is_lost = elapsed_secs > 8.5 || effective_rssi <= -80.0;
+            let is_lost = elapsed_secs > 10.0 || effective_rssi <= -80.0;
             let is_near = effective_rssi >= -60.0 && !is_lost;
 
             let status_text = if is_lost {
@@ -377,29 +392,28 @@ fn start_background_scanner() {
                             event.mac & 0xFF
                         );
 
+                        // Strictly require Apple Watch on-wrist frame (0x0A)
                         let is_on_wrist_frame = frame.action_code == Some(wristkey_core::continuity::ACTION_WATCH_ON_WRIST_UNLOCKED)
-                            || frame.is_on_wrist_and_unlocked
-                            || frame.is_on_wrist;
+                            && !frame.is_locked;
 
                         if let Ok(mut lock) = DEVICES.lock() {
                             let was_already_watch = lock.get(&mac_str).map_or(false, |e| e.device.is_confirmed_watch);
 
                             // STRICT NOISE FILTER:
-                            // If this frame is NOT an on-wrist frame AND this MAC was not previously confirmed as an on-wrist watch,
-                            // DROP IT COMPLETELY! This filters out iPhones, iPads, MacBooks, AirPods, and non-wrist devices.
+                            // Drop everything that is not an on-wrist Apple Watch.
+                            // Filters out iPhones, iPads, MacBooks, AirPods, and non-wrist devices completely.
                             if !is_on_wrist_frame && !was_already_watch {
                                 continue;
                             }
 
+                            // If watch was locked or taken off wrist, mark it off-wrist
+                            let is_on_wrist = is_on_wrist_frame && !frame.is_locked;
                             let is_confirmed_watch = true;
-                            let is_on_wrist = is_on_wrist_frame || was_already_watch;
 
-                            let name = if frame.is_on_wrist_and_unlocked {
+                            let name = if is_on_wrist {
                                 "Apple Watch (En tu muñeca y desbloqueado)".to_string()
-                            } else if frame.is_on_wrist {
-                                "Apple Watch (En tu muñeca)".to_string()
                             } else {
-                                "Apple Watch (En reposo)".to_string()
+                                "Apple Watch (Bloqueado / Fuera de muñeca)".to_string()
                             };
 
                             // HIGH-PRECISION ADAPTIVE RSSI SMOOTHING:
@@ -408,21 +422,21 @@ fn start_background_scanner() {
                                 let prev = existing.smoothed_rssi_f32;
                                 let diff = (raw_f - prev).abs();
 
-                                // Outlier clamp for physical sanity (> 25 dB spikes due to RF collision)
-                                let clamped_raw = if (raw_f - prev) > 25.0 {
-                                    prev + 25.0
-                                } else if (prev - raw_f) > 25.0 {
-                                    prev - 25.0
+                                // Outlier clamp for physical sanity (> 20 dB spikes due to RF collision)
+                                let clamped_raw = if (raw_f - prev) > 20.0 {
+                                    prev + 20.0
+                                } else if (prev - raw_f) > 20.0 {
+                                    prev - 20.0
                                 } else {
                                     raw_f
                                 };
 
-                                // Small RF noise (< 6 dBm): Alpha = 0.18 -> rock-solid steady reading
-                                // Medium movement (6-12 dBm): Alpha = 0.35 -> smooth transition
-                                // Large movement (>= 12 dBm): Alpha = 0.55 -> rapid tracking
-                                let alpha = if diff < 6.0 {
+                                // Small RF noise (< 5 dBm): Alpha = 0.18 -> rock-solid steady reading
+                                // Medium movement (5-10 dBm): Alpha = 0.35 -> smooth transition
+                                // Large movement (>= 10 dBm): Alpha = 0.55 -> rapid tracking
+                                let alpha = if diff < 5.0 {
                                     0.18
-                                } else if diff < 12.0 {
+                                } else if diff < 10.0 {
                                     0.35
                                 } else {
                                     0.55
@@ -603,6 +617,98 @@ mod tests {
         assert!((reading.distance_meters - 1.0).abs() < 0.1);
         assert!(reading.is_near);
         assert!(!reading.is_lost);
+    }
+
+    #[test]
+    fn test_mac_address_rotation_seamless_handoff() {
+        let old_mac = "11:22:33:44:55:01".to_string();
+        let new_mac = "11:22:33:44:55:02".to_string();
+
+        if let Ok(mut lock) = DEVICES.lock() {
+            lock.clear();
+
+            // Old MAC has gone silent (seen 4.0s ago)
+            lock.insert(
+                old_mac.clone(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: old_mac.clone(),
+                        name: "Apple Watch (En tu muñeca y desbloqueado)".to_string(),
+                        rssi: -55,
+                        on_wrist: true,
+                        is_unlocked: true,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: true,
+                        is_confirmed_watch: true,
+                        device_type: "apple_watch".to_string(),
+                        last_seen_ms_ago: 4000,
+                    },
+                    last_seen: Instant::now() - std::time::Duration::from_millis(4000),
+                    smoothed_rssi_f32: -55.0,
+                },
+            );
+
+            // New rotated MAC started advertising on wrist (seen 0.3s ago at same desk distance)
+            lock.insert(
+                new_mac.clone(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: new_mac.clone(),
+                        name: "Apple Watch (En tu muñeca y desbloqueado)".to_string(),
+                        rssi: -54,
+                        on_wrist: true,
+                        is_unlocked: true,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: true,
+                        is_confirmed_watch: true,
+                        device_type: "apple_watch".to_string(),
+                        last_seen_ms_ago: 300,
+                    },
+                    last_seen: Instant::now() - std::time::Duration::from_millis(300),
+                    smoothed_rssi_f32: -54.0,
+                },
+            );
+        }
+
+        // Caller asks for old_mac, but old_mac rotated!
+        // System must seamlessly hand off to new_mac without decaying or dropping signal!
+        let reading = get_live_proximity(Some(old_mac));
+        assert_eq!(reading.current_mac, new_mac);
+        assert_eq!(reading.is_confirmed_watch, true);
+        assert!(!reading.is_lost);
+        assert!(reading.is_near);
+        assert!((reading.rssi - (-54.0)).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_locked_or_off_wrist_watch_not_discovered() {
+        if let Ok(mut lock) = DEVICES.lock() {
+            lock.clear();
+
+            // Watch on charger / off-wrist / locked
+            lock.insert(
+                "AA:BB:CC:DD:EE:04".to_string(),
+                DeviceEntry {
+                    device: DiscoveredDeviceDto {
+                        mac: "AA:BB:CC:DD:EE:04".to_string(),
+                        name: "Apple Watch (Bloqueado / Fuera de muñeca)".to_string(),
+                        rssi: -50,
+                        on_wrist: false,
+                        is_unlocked: false,
+                        frame_type: "Nearby Info (0x10)".to_string(),
+                        is_watch_candidate: true,
+                        is_confirmed_watch: true,
+                        device_type: "apple_watch".to_string(),
+                        last_seen_ms_ago: 0,
+                    },
+                    last_seen: Instant::now(),
+                    smoothed_rssi_f32: -50.0,
+                },
+            );
+        }
+
+        let discovered = get_discovered_devices();
+        assert_eq!(discovered.len(), 0);
     }
 }
 
