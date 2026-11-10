@@ -1,0 +1,54 @@
+name: Reporte de Error / Bug Report
+description: Crea un informe de error para ayudarnos a identificar y solucionar un problema en WristKey.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por tomarte el tiempo de reportar este problema. Antes de enviar, revisa si existe un issue similar abierto.
+  - type: input
+    id: version
+    attributes:
+      label: Versión de WristKey / WristKey Version
+      description: Qué versión estás usando (ej. v0.4.18).
+      placeholder: v0.4.18
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Dispositivos y Entorno / Devices & Environment
+      description: Modelo de Apple Watch, versión de watchOS, versión de Windows y tarjeta Bluetooth.
+      placeholder: "Apple Watch SE (watchOS 10.6.2), Windows 11 23H2, Intel AX210 Bluetooth"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción del Problema / Problem Description
+      description: Explica detalladamente qué ocurre de forma inesperada.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Pasos para Reproducir / Steps to Reproduce
+      description: Pasos exactos para reproducir el comportamiento.
+      placeholder: |
+        1. Iniciar la aplicación WristKey.
+        2. Alejarme del escritorio a 3 metros.
+        3. Comprobar si Windows se bloquea.
+    validations:
+      required: true
+  - type: textarea
+    id: telemetry
+    attributes:
+      label: Telemetría / Logs de Diagnóstico (Opcional pero muy útil)
+      description: Si es relevante, ejecuta `cargo run -p wristkey-cli -- --telemetry` y pega aquí la salida.
+      render: shell
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Capturas de Pantalla / Screenshots
+      description: Puedes arrastrar y soltar capturas del radar o dashboard si ayudan a explicar el fallo.

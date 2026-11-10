@@ -168,6 +168,32 @@ cargo run -p wristkey-cli -- --telemetry
 
 ---
 
+## 🤝 Contribuir y Reportar Errores / Contributing & Issues
+
+¡Damos la bienvenida a cualquier contribución de la comunidad! Puedes colaborar de las siguientes formas:
+
+### 1. Reportar un Bug / Abrir un Issue
+Si encuentras un comportamiento inesperado o tu reloj no se detecta adecuadamente:
+1. Dirígete a la pestaña de **[GitHub Issues](https://github.com/jorjanion/WristKey/issues/new/choose)**.
+2. Selecciona la plantilla de **Reporte de Error** e incluye:
+   - Modelo exacto de Apple Watch y versión de watchOS (ej. Apple Watch SE, watchOS 10.6.2).
+   - Versión de Windows y modelo de adaptador Bluetooth del PC.
+   - Salida del comando de telemetría: `cargo run -p wristkey-cli -- --telemetry`.
+   - Comportamiento observado vs comportamiento esperado.
+
+### 2. Proponer una Mejora
+Si tienes una idea para una nueva característica, abre un issue con la plantilla **Solicitud de Función / Feature Request**.
+
+### 3. Enviar un Pull Request (PR)
+1. Haz un fork del repositorio y crea una rama para tu cambio (`git checkout -b feature/nombre-mejora`).
+2. Verifica que toda la suite de pruebas unitarias pase: `cargo test --workspace`.
+3. Comprueba el formato de código: `cargo fmt --check`.
+4. Abre tu Pull Request en GitHub describiendo detalladamente la solución.
+
+Para una guía paso a paso completa, consulta el archivo **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+
+---
+
 ## Troubleshooting
 
 1. **Bluetooth Adapter Not Recognized:** Ensure your PC's Bluetooth adapter supports Bluetooth Low Energy (BLE 4.2 or higher).

@@ -1248,6 +1248,7 @@ mod tests {
 
     #[test]
     fn test_apple_watch_se_hardware_device_class_discovered_and_on_wrist() {
+        let _guard = TEST_LOCK.lock().unwrap();
         use wristkey_core::continuity::AppleContinuityFrame;
         // User's Apple Watch SE (watchOS 10.6.2) live capture packet:
         let raw_watch = vec![0x10, 0x07, 0x3B, 0x1F, 0x2E, 0xD6, 0xDB, 0x68, 0x28];

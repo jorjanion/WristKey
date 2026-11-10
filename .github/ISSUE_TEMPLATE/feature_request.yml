@@ -1,0 +1,28 @@
+name: Solicitud de Función / Feature Request
+description: Sugiere una idea o mejora para WristKey.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ¿Tienes una idea o función que te gustaría ver en WristKey? Cuéntanosla.
+  - type: textarea
+    id: problem
+    attributes:
+      label: ¿Qué problema o necesidad resuelve esta función?
+      description: Explica el caso de uso o la limitación actual.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solución propuesta / Proposed Solution
+      description: Describe cómo te gustaría que funcionara esta característica en WristKey.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas / Alternatives Considered
+      description: ¿Has considerado alguna otra solución o alternativa?
