@@ -18,6 +18,19 @@
   <img src="https://img.shields.io/badge/Bluetooth-LE%204.2%2B-0082FC?logo=bluetooth&logoColor=white" alt="Bluetooth LE">
 </p>
 
+<p align="center">
+  🌐 <strong>Idiomas / Languages:</strong><br>
+  <strong>Español (Principal)</strong> | 
+  <a href="docs/translations/README.en.md">English</a> | 
+  <a href="docs/translations/README.fr.md">Français</a> | 
+  <a href="docs/translations/README.pt.md">Português</a> | 
+  <a href="docs/translations/README.de.md">Deutsch</a> | 
+  <a href="docs/translations/README.it.md">Italiano</a> | 
+  <a href="docs/translations/README.zh-CN.md">简体中文</a> | 
+  <a href="docs/translations/README.ko.md">한국어</a> | 
+  <a href="docs/translations/README.ja.md">日本語</a>
+</p>
+
 ---
 
 <div align="center">

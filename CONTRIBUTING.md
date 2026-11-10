@@ -1,5 +1,18 @@
 # Guía de Contribución / Contributing Guide
 
+<p align="right">
+  🌐 <strong>Idiomas:</strong> 
+  <strong>Español (Principal)</strong> | 
+  <a href="docs/translations/CONTRIBUTING.en.md">English</a> | 
+  <a href="docs/translations/CONTRIBUTING.fr.md">Français</a> | 
+  <a href="docs/translations/CONTRIBUTING.pt.md">Português</a> | 
+  <a href="docs/translations/CONTRIBUTING.de.md">Deutsch</a> | 
+  <a href="docs/translations/CONTRIBUTING.it.md">Italiano</a> | 
+  <a href="docs/translations/CONTRIBUTING.zh-CN.md">简体中文</a> | 
+  <a href="docs/translations/CONTRIBUTING.ko.md">한국어</a> | 
+  <a href="docs/translations/CONTRIBUTING.ja.md">日本語</a>
+</p>
+
 ¡Gracias por tu interés en mejorar **WristKey**!  
 WristKey es un proyecto open-source y damos la bienvenida a contribuciones de la comunidad, tanto reportes de errores como sugerencias y Pull Requests.
 
