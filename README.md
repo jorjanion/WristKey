@@ -1,21 +1,50 @@
-# WristKey
+<p align="center">
+  <img src="crates/wristkey-ui/icons/128x128.png" width="96" height="96" alt="WristKey Icon" />
+</p>
 
-[![Windows 11 / 10](https://img.shields.io/badge/Windows-11%20%7C%2010-0078D4?logo=windows&logoColor=white)](https://github.com/jorjanion/WristKey)
-[![License: MIT / Apache 2.0](https://img.shields.io/badge/License-MIT%20%2F%20Apache--2.0-blue.svg)](LICENSE-MIT)
-[![Release](https://img.shields.io/github/v/release/jorjanion/WristKey?color=2ea44f&label=Release)](https://github.com/jorjanion/WristKey/releases)
+<h1 align="center">WristKey</h1>
 
-Proximity auto-lock and unlock for Windows 11 and 10 using an Apple Watch over Bluetooth Low Energy (BLE).
+<p align="center">
+  <strong>Proximity Auto-Lock & Hands-Free Unlock for Windows using Apple Watch via BLE</strong><br>
+  <em>The seamless macOS-like Auto Unlock experience brought natively to Windows 11 and 10.</em>
+</p>
 
-Similar to native macOS Auto Unlock and Linux `watch-unlock-rs`, WristKey continuously monitors your Apple Watch in the background:
-- Locks your workstation automatically when you walk away from your desk.
-- Wakes the display and unlocks your session when you return.
-- Immediately rejects presence if the watch is removed from your wrist or locked with a passcode.
+<p align="center">
+  <a href="https://github.com/jorjanion/WristKey/releases/latest"><img src="https://img.shields.io/github/v/release/jorjanion/WristKey?color=2ea44f&label=Latest%20Release" alt="Release"></a>
+  <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/License-MIT%20%2F%20Apache--2.0-blue.svg" alt="License"></a>
+  <img src="https://img.shields.io/badge/Windows-11%20%7C%2010-0078D4?logo=windows&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/Rust-2021%2B-DEA584?logo=rust&logoColor=white" alt="Rust">
+  <img src="https://img.shields.io/badge/UI-Tauri%20v2-FFC131?logo=tauri&logoColor=black" alt="Tauri">
+  <img src="https://img.shields.io/badge/Bluetooth-LE%204.2%2B-0082FC?logo=bluetooth&logoColor=white" alt="Bluetooth LE">
+</p>
 
 ---
 
-## Installation
+## ⚡ Why WristKey?
 
-Download the installer from the **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)** page:
+Windows has a built-in feature called *Dynamic Lock*, but it falls short for modern workflows. **WristKey** solves these limitations by implementing genuine proximity tracking with Apple Continuity protocol analysis:
+
+| Feature | Windows Dynamic Lock | WristKey |
+| :--- | :--- | :--- |
+| **Walk-Away Auto-Lock** | ❌ Slow (waits up to 1-2 minutes) | ✅ **Instant & Configurable** (via RSSI hysteresis) |
+| **Approach Auto-Unlock** | ❌ Not supported (lock only) | ✅ **Hands-Free Automatic Unlock** (Credential Provider) |
+| **Wrist Presence Check** | ❌ None (locks even if watch is off) | ✅ **Continuity 0x004C Verified** (denies if watch removed) |
+| **Battery Efficiency** | ❌ High drain (active classic Bluetooth) | ✅ **Ultra-low power** (passive Bluetooth LE advertisements) |
+| **Address Privacy (RPA)** | ❌ Fails when BLE MAC rotates | ✅ **AES-128 IRK Hardware Matching** (`ah(IRK, prand)`) |
+| **Credential Security** | N/A | ✅ **Encrypted via Windows DPAPI** (never stored in plaintext) |
+
+---
+
+Similar to native macOS Auto Unlock and Linux `watch-unlock-rs`, WristKey continuously monitors your Apple Watch in the background:
+- **Locks your workstation automatically** when you walk away from your desk.
+- **Wakes the display and unlocks your session** when you return.
+- **Immediately rejects presence** if the watch is removed from your wrist or locked with a passcode.
+
+---
+
+## 📥 Installation
+
+Download the installer from the **[GitHub Releases](https://github.com/jorjanion/WristKey/releases/latest)** page:
 * `WristKey_0.4.17_x64-setup.exe`
 
 Run the installer to set up the application, desktop shortcut, and system tray background agent.
