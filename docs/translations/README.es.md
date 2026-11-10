@@ -65,7 +65,7 @@ Similar a la funcionalidad nativa de **Auto Unlock en macOS** y a **`watch-unloc
 ## 📥 Instalación
 
 Descarga el instalador oficial desde la sección de **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)**:
-* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
+* 📦 **[WristKey_0.4.20_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.20/WristKey_0.4.20_x64-setup.exe)**
 
 Ejecuta el archivo `.exe` para instalar WristKey en tu equipo con su acceso directo y servicio en segundo plano. Permite seleccionar tu idioma predilecto durante la instalación y cambiarlo en cualquier momento desde la app.
 

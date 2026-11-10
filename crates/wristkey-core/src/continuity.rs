@@ -1,17 +1,24 @@
-use serde::{Deserialize, Serialize};
+//! Apple Continuity Protocol Parser for WristKey
+//!
+//! Decodes Apple-specific Bluetooth Low Energy Manufacturer Advertisements
+//! (Manufacturer ID 0x004C), extracting Proximity Pairing, Nearby Info,
+//! Handoff, and AirDrop state frames.
+//!
+//! Specifically validates Apple Watch on-wrist optical state and proximity.
 
-/// Apple's Bluetooth SIG assigned company identifier (16-bit).
+pub const APPLE_MANUFACTURER_ID: u16 = 0x004C;
 pub const APPLE_COMPANY_ID: u16 = 0x004C;
 
-/// Apple Continuity message types.
+// Apple Continuity Message Types (byte 0 of payload)
 pub const TYPE_AIRDROP: u8 = 0x05;
 pub const TYPE_PROXIMITY_PAIRING: u8 = 0x07;
+pub const TYPE_AIRPLAY_TARGET: u8 = 0x09;
 pub const TYPE_MAGIC_SWITCH: u8 = 0x0B;
 pub const TYPE_HANDOFF: u8 = 0x0C;
 pub const TYPE_NEARBY_INFO: u8 = 0x10;
 pub const TYPE_FIND_MY: u8 = 0x12;
 
-/// Action codes inside Nearby Info (0x10) messages (lower 4 bits of payload[2]).
+// Nearby Info Action Codes (lower 4 bits of byte 2)
 pub const ACTION_UNKNOWN: u8 = 0x00;
 pub const ACTION_ACTIVITY_DISABLED: u8 = 0x01;
 pub const ACTION_IDLE: u8 = 0x03;
@@ -23,99 +30,78 @@ pub const ACTION_RECENT_INTERACTION: u8 = 0x0B;
 pub const ACTION_DRIVING: u8 = 0x0D;
 pub const ACTION_CALL_ACTIVE: u8 = 0x0E;
 
-/// Detailed decoded representation of an Apple Continuity advertisement payload.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Decoded representation of an Apple Continuity advertisement payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppleContinuityFrame {
-    /// Protocol type code (e.g. 0x10 for Nearby Info).
     pub message_type: u8,
-    /// Human-readable message type name.
     pub message_type_name: String,
-    /// Action code from Nearby Info (lower 4 bits of byte 2).
     pub action_code: Option<u8>,
-    /// Human-readable action description.
     pub action_name: Option<String>,
-    /// True if the watch is detected on the user's wrist.
     pub is_on_wrist: bool,
-    /// True if the watch is currently locked with a passcode.
     pub is_locked: bool,
-    /// Strict combined status: On-Wrist AND Passcode Unlocked.
     pub is_on_wrist_and_unlocked: bool,
-    /// Apple Watch Auto Unlock capability enabled (Bit 6/7).
     pub auto_unlock_capable: bool,
-    /// Device Wi-Fi interface status (Bit 2 of status byte).
     pub wifi_on: bool,
-    /// Device is marked as the primary iCloud account device (Bit 4 of byte 2).
     pub is_primary_icloud: bool,
-    /// AirDrop receiving enabled (Bit 5 of byte 2).
     pub airdrop_enabled: bool,
-    /// Message integrity authentication tag if present.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_tag: Option<Vec<u8>>,
-    /// Raw manufacturer payload bytes.
     pub raw_payload: Vec<u8>,
 }
 
 impl AppleContinuityFrame {
-    /// Parses an Apple manufacturer data payload.
+    /// Attempts to parse an Apple Continuity advertisement payload from raw manufacturer data.
     ///
-    /// Wire format:
-    /// `[Type (1 byte)] [Length (1 byte)] [Data (Length bytes)...]`
-    /// Can contain a single TLV or multiple concatenated TLVs.
+    /// Accepts either the full manufacturer data slice (including 0x4C, 0x00 header) or
+    /// just the Continuity payload bytes. Supports concatenated multi-TLV packets.
     pub fn parse(data: &[u8]) -> Option<Self> {
-        if data.is_empty() {
+        let payload = if data.len() >= 2 && data[0] == 0x4C && data[1] == 0x00 {
+            &data[2..]
+        } else {
+            data
+        };
+
+        if payload.len() < 2 {
             return None;
         }
 
-        let mut frames = Vec::new();
+        // Iterate through all TLV elements in the payload.
+        // If multiple TLVs are present, prioritize Nearby Info (0x10) or Magic Switch (0x0B)
+        // because those contain the Apple Watch wrist detection & auto-unlock state.
+        let mut best_frame: Option<Self> = None;
         let mut offset = 0;
 
-        while offset + 2 <= data.len() {
-            let msg_type = data[offset];
-            let msg_len = data[offset + 1] as usize;
-            let end = offset + 2 + msg_len;
-            if end > data.len() {
-                if let Some(frame) = Self::parse_tlv_payload(msg_type, &data[offset + 2..], &data[offset..]) {
-                    frames.push(frame);
+        while offset + 2 <= payload.len() {
+            let msg_type = payload[offset];
+            let msg_len = payload[offset + 1] as usize;
+            let val_start = offset + 2;
+            let val_end = val_start + msg_len;
+
+            if val_end > payload.len() {
+                // If standard TLV length exceeds remaining slice, parse remaining as single payload
+                let sub = &payload[val_start..];
+                if let Some(f) = Self::parse_tlv_payload(msg_type, sub, payload) {
+                    if best_frame.is_none() || f.is_on_wrist_and_unlocked {
+                        best_frame = Some(f);
+                    }
                 }
                 break;
             }
 
-            let tlv_data = &data[offset + 2..end];
-            let raw_tlv = &data[offset..end];
-            if let Some(frame) = Self::parse_tlv_payload(msg_type, tlv_data, raw_tlv) {
-                frames.push(frame);
+            let tlv_slice = &payload[val_start..val_end];
+            if let Some(f) = Self::parse_tlv_payload(msg_type, tlv_slice, payload) {
+                // Prioritize frames that confirm an on-wrist unlocked Apple Watch
+                if f.is_on_wrist_and_unlocked && f.is_apple_watch() {
+                    return Some(f);
+                }
+                if best_frame.is_none() || (f.message_type == TYPE_NEARBY_INFO && best_frame.as_ref().map_or(true, |b| b.message_type != TYPE_NEARBY_INFO)) {
+                    best_frame = Some(f);
+                }
             }
 
-            offset = end;
+            offset = val_end;
         }
 
-        if frames.is_empty() {
-            let msg_type = data[0];
-            let tlv_data = if data.len() > 2 { &data[2..] } else { &[] };
-            return Self::parse_tlv_payload(msg_type, tlv_data, data);
-        }
-
-        // Prioritize frames:
-        // 0. Confirmed Apple Watch on wrist & unlocked
-        // 1. Any Apple Watch candidate frame
-        // 2. Other Nearby Info frames
-        // 3. Handoff or Proximity Pairing frames
-        // 4. Any other frame
-        frames.sort_by_key(|f| {
-            if f.is_on_wrist_and_unlocked && f.is_apple_watch() {
-                0
-            } else if f.is_apple_watch() {
-                1
-            } else if f.message_type == TYPE_NEARBY_INFO {
-                2
-            } else if f.message_type == TYPE_HANDOFF || f.message_type == TYPE_PROXIMITY_PAIRING {
-                3
-            } else {
-                4
-            }
-        });
-
-        frames.into_iter().next()
+        best_frame
     }
 
     fn parse_tlv_payload(message_type: u8, payload: &[u8], raw: &[u8]) -> Option<Self> {
@@ -168,15 +154,15 @@ impl AppleContinuityFrame {
                 // payload[1] corresponds to byte 3: System Status flags (8 bits)
                 let status_flags = payload[1];
 
-                // Bit 1 (0x02): Auth tag length (0 = 3 bytes, 1 = 4 bytes)
-                if (status_flags & 0x02) != 0 {
-                    auth_tag_len = 4;
+                // Bit 0: Auth Tag length (0 = 3 bytes, 1 = 16 bytes auth tag)
+                if (status_flags & 0x01) != 0 {
+                    auth_tag_len = 16;
                 }
 
-                // Bit 2 (0x04): Wi-Fi state
+                // Bit 2: Wi-Fi state
                 wifi_on = (status_flags & 0x04) != 0;
 
-                // Bit 5 (0x20): Apple Watch Lock Status: 1 = Locked, 0 = Unlocked
+                // Bit 5 (0x20): Display / Device Locked
                 is_locked = (status_flags & 0x20) != 0;
 
                 // Bit 6 (0x40) and Bit 7 (0x80): Auto Unlock capability
@@ -192,8 +178,7 @@ impl AppleContinuityFrame {
                 None
             };
 
-            // Apple Watch Wrist Detection & Hardware Device Identification:
-            // An Apple device is identified as an Apple Watch by:
+            // Apple Watch Hardware Device Identification:
             // 1. Action Code 0x0A (ACTION_WATCH_ON_WRIST_UNLOCKED)
             // 2. Auto-Unlock capability bit in status flags (0xC0)
             // 3. Apple Hardware Device Class: When Nearby Info has length >= 7, payload[6] is (device_class << 3).
@@ -203,13 +188,12 @@ impl AppleContinuityFrame {
                 || (payload.len() >= 7 && (payload[payload.len() - 1] >> 3) == 5);
 
             // An Apple Watch is ONLY on wrist and unlocked if:
-            // 1. Action Code is 0x0A (Watch on wrist & unlocked), OR
-            // 2. Action Code is 0x0B (Recent user interaction on wrist), OR
-            // 3. Auto-Unlock capability flags are set (0xC0), AND
-            // 4. Device is NOT locked (!is_locked).
-            // When sitting on a charger or table (Action 0x05, Action 0x03), it is NOT on wrist!
+            // 1. Action Code is 0x0A (ACTION_WATCH_ON_WRIST_UNLOCKED), OR
+            // 2. Action Code is 0x0B (ACTION_RECENT_INTERACTION) and device is NOT locked (!is_locked).
+            // Under NO circumstances does the static auto_unlock capability flag (0xC0) imply on-wrist!
+            // When resting on the charging dock or on a table (Action 0x05, 0x03, 0x07, 0x00), it is NOT on wrist!
             let is_on_wrist = is_watch
-                && (action_code == ACTION_WATCH_ON_WRIST_UNLOCKED || action_code == ACTION_RECENT_INTERACTION || auto_unlock)
+                && (action_code == ACTION_WATCH_ON_WRIST_UNLOCKED || (action_code == ACTION_RECENT_INTERACTION && !is_locked))
                 && !is_locked;
             let is_on_wrist_and_unlocked = is_on_wrist;
 
@@ -228,17 +212,44 @@ impl AppleContinuityFrame {
                 auth_tag,
                 raw_payload: raw.to_vec(),
             })
-        } else {
-            let is_magic_switch = message_type == TYPE_MAGIC_SWITCH;
+        } else if message_type == TYPE_MAGIC_SWITCH {
+            // Magic Switch (0x0B) is Apple Watch-specific.
+            // Payload length is typically 3 bytes: 2 bytes of data + 1 byte of confidence:
+            // 0x03 = Not on wrist (removed / off wrist / charging dock)
+            // 0x1F = Wrist detection disabled
+            // 0x3F = On wrist
+            let is_on_wrist = if !payload.is_empty() {
+                let conf = payload[payload.len() - 1];
+                conf == 0x3F || (conf != 0x03 && conf != 0x1F)
+            } else {
+                false
+            };
+
             Some(Self {
                 message_type,
                 message_type_name: type_name,
                 action_code: None,
                 action_name: None,
-                is_on_wrist: is_magic_switch,
+                is_on_wrist,
                 is_locked: false,
-                is_on_wrist_and_unlocked: is_magic_switch,
-                auto_unlock_capable: is_magic_switch,
+                is_on_wrist_and_unlocked: is_on_wrist,
+                auto_unlock_capable: true,
+                wifi_on: false,
+                is_primary_icloud: false,
+                airdrop_enabled: false,
+                auth_tag: None,
+                raw_payload: raw.to_vec(),
+            })
+        } else {
+            Some(Self {
+                message_type,
+                message_type_name: type_name,
+                action_code: None,
+                action_name: None,
+                is_on_wrist: false,
+                is_locked: false,
+                is_on_wrist_and_unlocked: false,
+                auto_unlock_capable: false,
                 wifi_on: false,
                 is_primary_icloud: false,
                 airdrop_enabled: false,
@@ -327,14 +338,15 @@ mod tests {
 
     #[test]
     fn test_parse_nearby_info_watch_active_screen_on_and_interaction() {
-        // Apple Watch SE screen active with AutoUnlock capable flag set (0x44)
+        // Apple Watch screen active with AutoUnlock capable flag set (0x44):
+        // Device is an Apple Watch, but screen-on by itself (e.g. nightstand/charger mode) is NOT on-wrist!
         let raw_screen_on = vec![0x10, 0x05, 0x17, 0x44, 0x11, 0x22, 0x33];
         let frame = AppleContinuityFrame::parse(&raw_screen_on).expect("Must parse");
         assert_eq!(frame.action_code, Some(ACTION_SCREEN_ON));
         assert!(frame.is_primary_icloud);
         assert!(!frame.is_locked);
-        assert!(frame.is_on_wrist);
-        assert!(frame.is_on_wrist_and_unlocked);
+        assert!(!frame.is_on_wrist);
+        assert!(!frame.is_on_wrist_and_unlocked);
         assert!(frame.is_apple_watch());
 
         // Action 0x1B (Recent Interaction with AutoUnlock capable flag set)
@@ -380,7 +392,6 @@ mod tests {
         assert_eq!(frame_handoff.message_type, TYPE_HANDOFF);
         assert!(!frame_handoff.is_on_wrist);
         assert!(!frame_handoff.is_confirmed_apple_watch());
-        // Standalone Handoff from Mac/iPhone is not confirmed watch
         assert!(!frame_handoff.is_apple_watch());
 
         // Proximity Pairing (0x07) from AirPods
@@ -394,13 +405,21 @@ mod tests {
 
     #[test]
     fn test_parse_magic_switch_watch() {
-        // Magic Switch (0x0B) is Apple Watch-specific
+        // Magic Switch (0x0B) with Confidence 0x3F (On wrist)
         let raw_magic = vec![0x0B, 0x03, 0xC4, 0xB5, 0x3F];
         let frame = AppleContinuityFrame::parse(&raw_magic).expect("Must parse");
         assert_eq!(frame.message_type, TYPE_MAGIC_SWITCH);
         assert!(frame.is_apple_watch());
         assert!(frame.is_on_wrist);
         assert!(frame.is_on_wrist_and_unlocked);
+
+        // Magic Switch (0x0B) with Confidence 0x03 (Off wrist / Charging)
+        let raw_magic_off = vec![0x0B, 0x03, 0xC4, 0xB5, 0x03];
+        let frame_off = AppleContinuityFrame::parse(&raw_magic_off).expect("Must parse");
+        assert_eq!(frame_off.message_type, TYPE_MAGIC_SWITCH);
+        assert!(frame_off.is_apple_watch());
+        assert!(!frame_off.is_on_wrist);
+        assert!(!frame_off.is_on_wrist_and_unlocked);
     }
 
     #[test]

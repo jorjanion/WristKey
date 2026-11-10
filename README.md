@@ -65,7 +65,7 @@ Similar to the native **Auto Unlock feature in macOS** and **`watch-unlock-rs` i
 ## 📥 Installation
 
 Download the official standalone installer from the **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)** page:
-* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
+* 📦 **[WristKey_0.4.20_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.20/WristKey_0.4.20_x64-setup.exe)**
 
 Run the `.exe` installer. It includes language selection during setup (English, Spanish, French, Portuguese, German, Italian, Chinese, Korean, Japanese) and allows switching languages at any time directly within the application.
 

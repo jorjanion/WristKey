@@ -8,13 +8,12 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use wristkey_core::crypto::IrkResolver;
 use wristkey_core::dpapi::{CredentialVault, UserCredentials};
 use wristkey_core::ipc::IpcServer;
-use wristkey_core::lock::lock_workstation;
+use wristkey_core::lock::{is_workstation_locked, lock_workstation};
 use wristkey_core::registry::{read_paired_bluetooth_keys, PairedBluetoothKey};
 use wristkey_core::sas::LockScreenController;
 use wristkey_core::scanner::BleScanner;
@@ -79,7 +78,7 @@ impl Default for EngineSettings {
             auto_lock_enabled: true,
             auto_unlock_enabled: true,
             require_on_wrist: true,
-            lock_threshold_dbm: -74,
+            lock_threshold_dbm: -80,
             unlock_threshold_dbm: -58,
             tracked_mac: None,
         }
@@ -119,8 +118,6 @@ fn save_settings(settings: &EngineSettings) {
 
 static ENGINE_SETTINGS: std::sync::LazyLock<Arc<Mutex<EngineSettings>>> =
     std::sync::LazyLock::new(|| Arc::new(Mutex::new(load_settings())));
-
-static IS_LOCKED: AtomicBool = AtomicBool::new(false);
 
 static DEVICES: std::sync::LazyLock<Arc<Mutex<HashMap<String, DeviceEntry>>>> =
     std::sync::LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
@@ -218,12 +215,12 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
         if let Some(entry) = target {
             let elapsed_secs = now.duration_since(entry.last_seen).as_secs_f32();
 
-            // RESPONSIVE SIGNAL FADE & SILENCE DECAY:
-            // 0s to 2.5s: Steady smoothed RSSI during active Bluetooth transmissions.
-            // > 2.5s: If user is walking away or puts body between watch & PC, fade at 5.0 dB/s.
-            // > 10.0s: Completely out of range or silent on charger -> triggers loss.
-            let effective_rssi = if elapsed_secs > 2.5 {
-                let fade = (elapsed_secs - 2.5) * 5.0;
+            // REAL-TIME SIGNAL FADE & SILENCE DECAY:
+            // 0s to 6.0s: Steady smoothed RSSI during active Bluetooth transmissions.
+            // > 6.0s: User walking away: fade at 2.5 dB/s.
+            // > 15.0s: Completely out of range or silent: triggers is_lost = true.
+            let effective_rssi = if elapsed_secs > 6.0 {
+                let fade = (elapsed_secs - 6.0) * 2.5;
                 (entry.smoothed_rssi_f32 - fade).max(-88.0)
             } else {
                 entry.smoothed_rssi_f32
@@ -234,22 +231,22 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
             let ratio = (-58.0 - effective_rssi) / (10.0 * 2.4);
             let distance_meters = (10.0_f32).powf(ratio).clamp(0.3, 8.0);
 
-            let is_lost = elapsed_secs > 10.0 || effective_rssi <= -78.0;
+            let is_lost = elapsed_secs > 15.0 || effective_rssi <= -82.0;
             let is_near = effective_rssi >= -62.0 && !is_lost;
 
             // ON-WRIST REAL-TIME VALIDITY:
-            // 1. If device is lost or silent > 3.5s, it is NOT actively communicating on-wrist.
-            // 2. If the watch explicitly transmitted an off-wrist / charging frame (Action 0x05, 0x03, or is_locked),
-            //    it is immediately recognized as off-wrist.
-            let is_active_on_wrist = entry.device.on_wrist && elapsed_secs <= 3.5;
-            let is_active_unlocked = entry.device.is_unlocked && elapsed_secs <= 3.5;
+            // 1. If the watch explicitly transmitted an off-wrist/locked/charging frame (entry.device.on_wrist == false),
+            //    it is immediately recognized as off-wrist (0s delay!).
+            // 2. If the watch was confirmed on-wrist, keep it valid for up to 10.0s of silence while seated at desk.
+            let is_active_on_wrist = entry.device.on_wrist && elapsed_secs <= 10.0;
+            let is_active_unlocked = entry.device.is_unlocked && elapsed_secs <= 10.0;
 
             let (display_name, display_on_wrist, display_unlocked) = if is_lost {
                 ("Apple Watch (Sin señal / Fuera de alcance)".to_string(), false, false)
-            } else if elapsed_secs > 3.5 {
-                ("Apple Watch (Sin señal reciente / Fuera de muñeca)".to_string(), false, false)
             } else if !entry.device.on_wrist {
                 ("Apple Watch (Bloqueado / Fuera de muñeca / En cargador)".to_string(), false, false)
+            } else if elapsed_secs > 10.0 {
+                ("Apple Watch (Sin señal reciente / Fuera de muñeca)".to_string(), false, false)
             } else {
                 (entry.device.name.clone(), is_active_on_wrist, is_active_unlocked)
             };
@@ -260,7 +257,7 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
                 "FUERA DE MUÑECA (Zona de bloqueo)".to_string()
             } else if is_near {
                 "CERCA (En tu escritorio / Desbloqueado)".to_string()
-            } else if effective_rssi <= -72.0 {
+            } else if effective_rssi <= -76.0 {
                 "ALEJÁNDOTE (Próximo al bloqueo)".to_string()
             } else {
                 "ZONA MEDIA (En la habitación)".to_string()
@@ -575,7 +572,7 @@ fn start_background_scanner() {
                             false
                         };
 
-                        if !frame.is_confirmed_apple_watch() && !(was_already_watch && frame.is_locked) {
+                        if !frame.is_confirmed_apple_watch() && !(was_already_watch && (frame.is_locked || !frame.is_on_wrist)) {
                             continue;
                         }
 
@@ -597,26 +594,23 @@ fn start_background_scanner() {
                                 let prev = existing.smoothed_rssi_f32;
                                 let diff = (raw_f - prev).abs();
 
-                                // Outlier clamp for physical sanity (> 30 dB spikes due to RF collision)
-                                let clamped_raw = if (raw_f - prev) > 30.0 {
-                                    prev + 30.0
-                                } else if (prev - raw_f) > 30.0 {
-                                    prev - 30.0
+                                // Outlier clamp for physical sanity:
+                                // Realistic RF multipath jump limit within 300ms is 12 dB.
+                                let clamped_raw = if (raw_f - prev) > 12.0 {
+                                    prev + 12.0
+                                } else if (prev - raw_f) > 12.0 {
+                                    prev - 12.0
                                 } else {
                                     raw_f
                                 };
 
-                                // Asymmetric, highly-responsive tracking:
-                                // Signal drops (walking away, turning back, putting body between PC & watch):
-                                // High alpha (0.75) gives instant real-time response!
-                                // Signal strengthens (approaching desk): Alpha 0.45 for smooth approach.
-                                // Minimal noise (< 3 dBm): Alpha 0.20 for rock-solid stability at desk.
-                                let alpha = if diff < 3.0 {
-                                    0.20
-                                } else if raw_f < prev {
-                                    0.75
+                                // Balanced EMA filter:
+                                // Minimal noise (< 4 dBm): Alpha 0.15 for rock-solid stability at desk.
+                                // Movement / drops: Alpha 0.25 for smooth, natural transitions without false plunge.
+                                let alpha = if diff < 4.0 {
+                                    0.15
                                 } else {
-                                    0.45
+                                    0.25
                                 };
 
                                 (prev * (1.0 - alpha)) + (clamped_raw * alpha)
@@ -698,51 +692,61 @@ fn start_native_proximity_engine() {
             };
 
             let reading = get_live_proximity(settings.tracked_mac.clone());
-            let currently_locked = IS_LOCKED.load(Ordering::SeqCst);
+            let currently_locked = is_workstation_locked();
 
             // ARMING LOGIC:
-            // Protection ONLY arms when the user's watch is confirmed in desk proximity (< 2m, on-wrist).
-            // If the watch is not connected or in another room on startup, we do NOT lock the PC!
+            // Protection ONLY arms when the user's watch is confirmed on wrist and unlocked in desk proximity.
+            // When resting on the charging dock or table (off-wrist), it will NEVER arm!
             if !session_armed {
-                if reading.is_near && (!settings.require_on_wrist || (reading.is_confirmed_watch && reading.on_wrist && reading.is_unlocked)) {
+                if reading.is_near && reading.is_confirmed_watch && reading.on_wrist && reading.is_unlocked {
                     session_armed = true;
                     log::info!(
-                        "[NATIVE ENGINE] Session ARMED: Apple Watch confirmed at desk ({:.1} dBm). Proximity protection active!",
+                        "[NATIVE ENGINE] Session ARMED: Apple Watch confirmed on-wrist at desk ({:.1} dBm). Active protection online!",
                         reading.rssi
                     );
                 }
             }
 
             // EVALUATE AUTO-LOCK:
-            // Must be enabled, not currently locked, beyond startup grace period (12s),
-            // past any lock cooldown, and the session must have been armed at least once!
+            // Must be enabled, workstation is currently unlocked, session must be armed,
+            // startup grace period (10s) passed, and lock cooldown expired.
             if settings.auto_lock_enabled
                 && !currently_locked
                 && session_armed
-                && now.duration_since(startup_time).as_secs() >= 12
+                && now.duration_since(startup_time).as_secs() >= 10
                 && now >= lock_cooldown_until
             {
-                // Criteria for being "Away":
-                // 1. Device is lost (> 18s of silence / out of range)
-                // 2. Smoothed RSSI has fallen below lock_threshold_dbm (e.g. <= -74 dBm)
-                // 3. (If require_on_wrist) watch has been removed from wrist or locked
-                let is_away = reading.is_lost
-                    || reading.rssi <= settings.lock_threshold_dbm as f32
-                    || (settings.require_on_wrist && (!reading.on_wrist || !reading.is_unlocked));
+                // What constitutes being "Away"?
+                // 1. Explicit Off-Wrist: watch is confirmed off-wrist/charging or passcode-locked
+                let explicit_off_wrist = settings.require_on_wrist
+                    && (!reading.on_wrist || !reading.is_unlocked)
+                    && reading.seconds_since_last_packet <= 6.0;
 
-                if is_away {
+                // 2. Physical Departure: device is lost or smoothed RSSI is below lock threshold
+                let physical_departure = reading.is_lost || reading.rssi <= settings.lock_threshold_dbm as f32;
+
+                if explicit_off_wrist {
                     consecutive_away_ticks += 1;
-                    // Require 7 consecutive ticks (~2.8 seconds) of confirmed departure
-                    // to completely filter out any momentary BLE packet collisions.
-                    if consecutive_away_ticks >= 7 {
+                    // For explicit off-wrist: require 6 ticks (2.4s) of confirmed off-wrist before locking
+                    if consecutive_away_ticks >= 6 {
+                        log::warn!("[NATIVE ENGINE] Watch removed from wrist or locked! Locking workstation.");
+                        if lock_workstation().is_ok() {
+                            consecutive_away_ticks = 0;
+                            session_armed = false; // Disarm until put back on wrist
+                            lock_cooldown_until = now + std::time::Duration::from_secs(8);
+                        }
+                    }
+                } else if physical_departure {
+                    consecutive_away_ticks += 1;
+                    // For physical departure: require 12 ticks (4.8s) of continuous departure to filter out RF dips
+                    if consecutive_away_ticks >= 12 {
                         log::warn!(
-                            "[NATIVE ENGINE] Auto-Lock triggered! RSSI: {:.1} dBm, Elapsed: {:.1}s, IsLost: {}",
-                            reading.rssi, reading.seconds_since_last_packet, reading.is_lost
+                            "[NATIVE ENGINE] Departure confirmed (RSSI: {:.1} dBm, Lost: {}). Locking workstation.",
+                            reading.rssi, reading.is_lost
                         );
                         if lock_workstation().is_ok() {
-                            IS_LOCKED.store(true, Ordering::SeqCst);
                             consecutive_away_ticks = 0;
-                            lock_cooldown_until = now + std::time::Duration::from_secs(12);
+                            lock_cooldown_until = now + std::time::Duration::from_secs(8);
                         }
                     }
                 } else {
@@ -751,25 +755,25 @@ fn start_native_proximity_engine() {
             }
 
             // EVALUATE AUTO-UNLOCK:
-            if settings.auto_unlock_enabled && currently_locked {
+            // Workstation must be locked, auto-unlock enabled, lock cooldown expired.
+            if settings.auto_unlock_enabled && currently_locked && now >= lock_cooldown_until {
                 let is_near = !reading.is_lost
-                    && reading.seconds_since_last_packet < 2.5
+                    && reading.seconds_since_last_packet < 3.0
                     && reading.rssi >= settings.unlock_threshold_dbm as f32
                     && (!settings.require_on_wrist || (reading.is_confirmed_watch && reading.on_wrist && reading.is_unlocked));
 
                 if is_near {
                     consecutive_near_ticks += 1;
-                    // Require 3 consecutive ticks (~1.2s) of solid strong desk signal
-                    if consecutive_near_ticks >= 3 {
+                    // Require 4 consecutive ticks (1.6s) of solid desk signal on wrist
+                    if consecutive_near_ticks >= 4 {
                         log::info!(
-                            "[NATIVE ENGINE] Auto-Unlock: Watch back in close desk range ({:.1} dBm). Waking display!",
+                            "[NATIVE ENGINE] Auto-Unlock: Watch on wrist at desk ({:.1} dBm). Waking display!",
                             reading.rssi
                         );
                         LockScreenController::wake_and_prompt_logon();
-                        IS_LOCKED.store(false, Ordering::SeqCst);
-                        session_armed = true;
                         consecutive_near_ticks = 0;
-                        lock_cooldown_until = now + std::time::Duration::from_secs(12);
+                        session_armed = true;
+                        lock_cooldown_until = now + std::time::Duration::from_secs(8);
                     }
                 } else {
                     consecutive_near_ticks = 0;
@@ -803,8 +807,46 @@ fn start_ipc_server() {
     });
 }
 
+#[tauri::command]
+fn open_log_file() {
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let log_file = PathBuf::from(local_app_data).join("WristKey").join("wristkey.log");
+        if log_file.exists() {
+            let _ = std::process::Command::new("notepad.exe")
+                .arg(log_file)
+                .spawn();
+        }
+    }
+}
+
+fn init_file_logging() {
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let log_dir = PathBuf::from(local_app_data).join("WristKey");
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_file = log_dir.join("wristkey.log");
+
+        // Truncate if file exceeds 2 MB
+        if let Ok(meta) = std::fs::metadata(&log_file) {
+            if meta.len() > 2 * 1024 * 1024 {
+                let _ = std::fs::remove_file(&log_file);
+            }
+        }
+
+        if let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(&log_file) {
+            let target = Box::new(file);
+            let _ = env_logger::Builder::from_default_env()
+                .target(env_logger::Target::Pipe(target))
+                .filter_level(log::LevelFilter::Info)
+                .try_init();
+            log::info!("=== WristKey Logging Online ===");
+            return;
+        }
+    }
+    let _ = env_logger::try_init();
+}
+
 fn main() {
-    env_logger::init();
+    init_file_logging();
     start_background_scanner();
     start_native_proximity_engine();
     start_ipc_server();
@@ -827,6 +869,7 @@ fn main() {
             set_autostart_enabled,
             get_engine_settings,
             update_engine_settings,
+            open_log_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running WristKey application");
@@ -1325,11 +1368,11 @@ mod tests {
         assert!(!reading.is_unlocked);
         assert!(reading.device_name.contains("cargador") || reading.device_name.contains("Cargador"));
 
-        // When a watch goes silent for > 3.5 seconds:
+        // When a watch goes silent for > 10.0 seconds:
         if let Ok(mut lock) = DEVICES.lock() {
             if let Some(entry) = lock.get_mut(&charger_mac) {
                 entry.device.on_wrist = true; // Even if it was on wrist before!
-                entry.last_seen = Instant::now() - std::time::Duration::from_millis(4000);
+                entry.last_seen = Instant::now() - std::time::Duration::from_millis(11000);
             }
         }
 

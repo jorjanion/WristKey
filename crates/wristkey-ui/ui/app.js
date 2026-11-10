@@ -16,7 +16,7 @@ let currentStep = 1;
 let isScanning = true;
 let selectedMac = localStorage.getItem("wristkey_selected_mac") || null;
 let unlockThreshold = parseInt(localStorage.getItem("wristkey_unlock_thresh")) || -58;
-let lockThreshold = parseInt(localStorage.getItem("wristkey_lock_thresh")) || -74;
+let lockThreshold = parseInt(localStorage.getItem("wristkey_lock_thresh")) || -80;
 let currentRssi = -58.0;
 let scanInterval = null;
 let isWorkstationLocked = false;
@@ -109,7 +109,7 @@ async function checkForUpdates() {
         });
         if (response.ok) {
             const release = await response.json();
-            const currentVersion = "0.4.19";
+            const currentVersion = "0.4.20";
             const tag = release.tag_name || "";
             const latestClean = tag.replace(/^v/, "");
 
@@ -399,7 +399,7 @@ function initCalibrationSliders() {
 }
 
 function updateThresholdMarkers() {
-    const minRssi = -82;
+    const minRssi = -88;
     const maxRssi = -42;
     const unlockPct = Math.min(100, Math.max(0, ((unlockThreshold - minRssi) / (maxRssi - minRssi)) * 100));
     const lockPct = Math.min(100, Math.max(0, ((lockThreshold - minRssi) / (maxRssi - minRssi)) * 100));
@@ -561,6 +561,17 @@ function initQuickLock() {
             }
         });
     }
+
+    const btnOpenLog = document.getElementById("btn-open-log");
+    if (btnOpenLog) {
+        btnOpenLog.addEventListener("click", async () => {
+            try {
+                await invoke("open_log_file");
+            } catch (err) {
+                console.error("Open log error:", err);
+            }
+        });
+    }
 }
 
 // Step 2 & 4: Live Signal Updates (Steady, Smooth & Highly Accurate)
@@ -588,8 +599,8 @@ function startLiveUpdates() {
                 if (elRssi) elRssi.textContent = reading.rssi.toFixed(1);
                 if (elDist) elDist.textContent = `~${reading.distance_meters.toFixed(1)}m`;
 
-                // Dynamic Percentage: maps -82 dBm (0%) to -42 dBm (100%)
-                const minRssi = -82;
+                // Dynamic Percentage: maps -88 dBm (0%) to -42 dBm (100%)
+                const minRssi = -88;
                 const maxRssi = -42;
                 const pct = Math.min(100, Math.max(0, ((reading.rssi - minRssi) / (maxRssi - minRssi)) * 100));
                 if (elBar) elBar.style.width = `${pct}%`;
