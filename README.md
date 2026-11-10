@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="crates/wristkey-ui/icons/128x128.png" width="96" height="96" alt="WristKey Icon" />
+  <img src="assets/logo.png" width="112" height="112" alt="WristKey Logo" style="border-radius: 24px; box-shadow: 0 4px 20px rgba(0, 120, 212, 0.45);" />
 </p>
 
 <h1 align="center">WristKey</h1>
 
 <p align="center">
-  <strong>Proximity Auto-Lock & Hands-Free Unlock for Windows using Apple Watch via BLE</strong><br>
-  <em>The seamless macOS-like Auto Unlock experience brought natively to Windows 11 and 10.</em>
+  <strong>Proximity Auto-Lock & Hands-Free Unlock for Windows 11 / 10 using Apple Watch via BLE</strong><br>
+  <em>La experiencia fluida de Auto Unlock de macOS traída de forma nativa a Windows.</em>
 </p>
 
 <p align="center">
@@ -20,38 +20,68 @@
 
 ---
 
-## ⚡ Why WristKey?
+<div align="center">
+  <img src="assets/dashboard_active_protection.png" alt="WristKey Fluent Dashboard" width="760" style="border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 30px rgba(0,0,0,0.5);" />
+  <p><em>Panel de Protección Activa en tiempo real · Medición RSSI continua y verificación óptica en muñeca</em></p>
+</div>
 
-Windows has a built-in feature called *Dynamic Lock*, but it falls short for modern workflows. **WristKey** solves these limitations by implementing genuine proximity tracking with Apple Continuity protocol analysis:
+---
 
-| Feature | Windows Dynamic Lock | WristKey |
+## ⚡ ¿Por qué WristKey? / Why WristKey?
+
+Windows incluye una función llamada *Bloqueo dinámico* (Dynamic Lock), pero resulta insuficiente en el día a día. **WristKey** supera estas limitaciones implementando seguimiento de proximidad real mediante el análisis del protocolo nativo Apple Continuity:
+
+| Característica / Feature | Windows Dynamic Lock | WristKey |
 | :--- | :--- | :--- |
-| **Walk-Away Auto-Lock** | ❌ Slow (waits up to 1-2 minutes) | ✅ **Instant & Configurable** (via RSSI hysteresis) |
-| **Approach Auto-Unlock** | ❌ Not supported (lock only) | ✅ **Hands-Free Automatic Unlock** (Credential Provider) |
-| **Wrist Presence Check** | ❌ None (locks even if watch is off) | ✅ **Continuity 0x004C Verified** (denies if watch removed) |
-| **Battery Efficiency** | ❌ High drain (active classic Bluetooth) | ✅ **Ultra-low power** (passive Bluetooth LE advertisements) |
-| **Address Privacy (RPA)** | ❌ Fails when BLE MAC rotates | ✅ **AES-128 IRK Hardware Matching** (`ah(IRK, prand)`) |
-| **Credential Security** | N/A | ✅ **Encrypted via Windows DPAPI** (never stored in plaintext) |
+| **Auto-bloqueo al alejarte** | ❌ Lento (espera hasta 1 o 2 minutos) | ✅ **Inmediato y configurable** (filtro RSSI asimétrico) |
+| **Auto-desbloqueo al acercarte** | ❌ No soportado (solo bloquea) | ✅ **Desbloqueo automático manos libres** (Credential Provider) |
+| **Verificación óptica en muñeca** | ❌ Nula (sigue activo con reloj en mesa) | ✅ **Continuity 0x004C verificado** (revoca acceso al quitártelo) |
+| **Consumo de batería** | ❌ Alto (Bluetooth clásico constante) | ✅ **Ultra bajo consumo** (anuncios pasivos Bluetooth LE) |
+| **Privacidad de dirección (RPA)** | ❌ Falla cuando la MAC de BLE rota | ✅ **Resolución hardware AES-128 IRK** (`ah(IRK, prand)`) |
+| **Seguridad de credenciales** | N/A | ✅ **Cifrado local con Windows DPAPI** (nunca en texto plano) |
 
 ---
 
-Similar to native macOS Auto Unlock and Linux `watch-unlock-rs`, WristKey continuously monitors your Apple Watch in the background:
-- **Locks your workstation automatically** when you walk away from your desk.
-- **Wakes the display and unlocks your session** when you return.
-- **Immediately rejects presence** if the watch is removed from your wrist or locked with a passcode.
+Similar a la funcionalidad nativa de **Auto Unlock en macOS** y a **`watch-unlock-rs` en Linux**, **WristKey** monitoriza continuamente en segundo plano tu Apple Watch a través de Bluetooth Low Energy (BLE):
+- 🔒 **Bloquea automáticamente tu PC** cuando te levantas o te alejas de tu escritorio.
+- 🔓 **Enciende la pantalla y desbloquea tu sesión** al regresar a tu puesto de trabajo.
+- 🛑 **Seguridad óptica en muñeca:** Si te quitas el reloj o este se bloquea con código, el acceso se revoca de inmediato.
 
 ---
 
-## 📥 Installation
+## 📥 Instalación / Installation
 
-Download the installer from the **[GitHub Releases](https://github.com/jorjanion/WristKey/releases/latest)** page:
-* `WristKey_0.4.17_x64-setup.exe`
+Descarga el instalador oficial desde la sección de **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)**:
+* 📦 **[WristKey_0.4.18_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.18/WristKey_0.4.18_x64-setup.exe)**
 
-Run the installer to set up the application, desktop shortcut, and system tray background agent.
+Ejecuta el archivo `.exe` para instalar WristKey en tu equipo con su acceso directo y servicio en segundo plano.
 
 ---
 
-## Architecture & Security
+### ⚠️ ¿Por qué Windows SmartScreen muestra un aviso al instalar?
+
+Al ejecutar el instalador por primera vez en Windows 11 o 10, es posible que veas la pantalla azul de aviso de **Microsoft Defender SmartScreen** (*"Windows protegió su PC"*):
+
+<div align="center">
+  <img src="assets/smartscreen_guide.png" alt="Guía de instalación con Windows Defender SmartScreen" width="760" style="border-radius: 12px; margin: 12px 0;" />
+</div>
+
+#### ¿Por qué ocurre esto?
+1. **Falta de reputación en la nube de Microsoft:** SmartScreen es un filtro basado en telemetría de Microsoft. Cada versión nueva (`v0.4.18`, etc.) genera un binario nuevo con un hash criptográfico único que la nube de Microsoft aún no ha visto miles de veces descargado.
+2. **Coste de los certificados de firma de código (EV):** Para que Windows no muestre advertencias en aplicaciones de escritorio recién creadas, Microsoft exige que los desarrolladores adquieran un certificado *EV Code Signing* que cuesta entre **$300 y $500 al año** mediante empresas de certificación corporativas (DigiCert, Sectigo). En proyectos comunitarios y de código abierto independientes, este gasto no es viable.
+3. **Seguridad y Privacidad 100% Verificable:**
+   - WristKey es **100% código abierto** (Open Source).
+   - Puedes auditar todo el código fuente en Rust en este mismo repositorio.
+   - Tus contraseñas se almacenan cifradas localmente con **Windows DPAPI** (`CryptProtectData`) vinculadas a tu cuenta de usuario.
+   - No contiene telemetría de terceros ni conexiones a servidores externos.
+
+#### ¿Cómo continuar con la instalación?
+1. Haz clic en el enlace azul **"Más información"** (*"More info"*).
+2. Pulsa en el botón **"Ejecutar de todas formas"** (*"Run anyway"*).
+
+---
+
+## Arquitectura y Seguridad / Architecture & Security
 
 1. **RPA Resolution (AES-128 IRK):**
    Apple devices rotate their Bluetooth MAC address every ~15 minutes (Resolvable Private Address). WristKey resolves RPAs against the paired watch's Identity Resolving Key (IRK) using hardware AES-128 (`ah(IRK, prand)` per Bluetooth SIG Core Spec).
@@ -71,11 +101,11 @@ Windows BLE Watcher (WinRT)
 RPA Resolver (AES-128 IRK matching via Bluetooth Core Spec)
   ▼
 Apple Continuity Parser (0x004C / 0x10 Nearby Info)
-  │  Verifies watch is on wrist and unlocked (Action Code 0x0A)
+  │  Verifies watch is on wrist and unlocked (Action Code 0x0A / 0x0B)
   ▼
-RSSI EMA Filter & Hysteresis State Machine
-  ├── Walk Away (RSSI < -82 dBm)  ──> LockWorkStation()
-  └── Approach  (RSSI > -62 dBm)  ──> Wake Screen & Unlock via Credential Provider
+RSSI Asymmetric EMA Filter & Hysteresis State Machine
+  ├── Walk Away (RSSI < -80 dBm or Off-Wrist)  ──> LockWorkStation()
+  └── Approach  (RSSI > -58 dBm and On-Wrist)  ──> Wake Screen & Unlock via Credential Provider
 ```
 
 ---
@@ -127,72 +157,25 @@ cargo run -p wristkey-cli -- --verify-crypto
 ```
 
 #### 5. Continuity Telemetry Inspector (`--telemetry`)
-Streams decoded Apple Continuity `0x10 Nearby Info` bitfields in real-time (on-wrist status, passcode lock state, auto-unlock flag, Wi-Fi status):
+Real-time decoding of Nearby Info flags (on-wrist state, user activity, auto-unlock eligibility, Wi-Fi status, and auth tags):
 ```powershell
 cargo run -p wristkey-cli -- --telemetry
 ```
 
-#### 6. Configure Credential Vault (`--setup-credentials` / `--test-vault`)
-Prompts for Windows user credentials and encrypts them using Windows DPAPI for session unlock:
-```powershell
-# Store credentials in encrypted DPAPI vault
-cargo run -p wristkey-cli -- --setup-credentials
-
-# Verify vault decryption
-cargo run -p wristkey-cli -- --test-vault
-
-# Remove stored vault
-cargo run -p wristkey-cli -- --clear-credentials
-```
-
-#### 7. Headless Proximity Daemon (`--auto-lock` / `--auto-unlock`)
-Runs the proximity tracking loop directly in terminal with custom thresholds:
-```powershell
-cargo run -p wristkey-cli -- --auto-lock --auto-unlock --lock-threshold -82 --unlock-threshold -62
-```
-
 ---
 
-## Project Structure
+## Troubleshooting
 
-```
-WristKey/
-├── .github/workflows/       # GitHub Actions automated release workflow
-├── crates/
-│   ├── wristkey-core/       # WinRT BLE scanner, RPA crypto, Apple Continuity, DPAPI, RSSI filter
-│   ├── wristkey-cli/        # Diagnostic CLI and terminal tools
-│   ├── wristkey-credprov/   # Windows Credential Provider COM DLL for session unlock
-│   ├── wristkey-daemon/     # Background service and tray agent
-│   └── wristkey-ui/         # Windows 11 Fluent UI Setup Wizard (Tauri v2)
-└── README.md
-```
-
----
-
-## Contributing
-
-Contributions, bug reports, and pull requests are welcome.
-
-### Reporting Issues
-When opening an issue, please include:
-- Windows version and build number (`winver`).
-- Bluetooth adapter model / chipset.
-- Apple Watch model and watchOS version.
-- Steps to reproduce the problem and relevant output from `wristkey-cli --scan` or `wristkey-cli --telemetry`.
-
-### Submitting Pull Requests
-1. Fork the repository and create a new branch (`git checkout -b feature/your-feature`).
-2. Ensure code follows formatting guidelines (`cargo fmt`).
-3. Run linter and tests to make sure everything passes:
-   ```powershell
-   cargo test
-   cargo clippy --all-targets
-   ```
-4. Commit your changes with clear, descriptive commit messages.
-5. Push to your branch and open a Pull Request.
+1. **Bluetooth Adapter Not Recognized:** Ensure your PC's Bluetooth adapter supports Bluetooth Low Energy (BLE 4.2 or higher).
+2. **Wrist Detection Disabled on Watch:** In the Apple Watch app on your iPhone, go to *Passcode* and ensure *Wrist Detection* is toggled **ON**.
+3. **Display Does Not Wake:** Ensure Windows Power & Sleep settings allow peripheral wake events.
 
 ---
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE).
+Licensed under either of:
+* Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+* MIT License ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.
