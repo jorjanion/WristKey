@@ -225,6 +225,98 @@ impl CredentialVault {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WindowsLogonResult {
+    pub success: bool,
+    pub error_code: u32,
+    pub message: String,
+    pub detected_user: String,
+}
+
+/// Tests whether the provided credentials can log into Windows via native Win32 LogonUserW.
+pub fn validate_windows_logon(domain: &str, user: &str, pass: &str) -> WindowsLogonResult {
+    let (sys_domain, sys_user) = get_system_username_info();
+    let detected_user = format!("{}\\{}", sys_domain, sys_user);
+
+    #[cfg(windows)]
+    {
+        use windows::core::HSTRING;
+        use windows::Win32::Foundation::{CloseHandle, HANDLE};
+        use windows::Win32::Security::{
+            LogonUserW, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT,
+        };
+
+        let u_str = user.trim();
+        let d_str = domain.trim();
+        let domain_final = if d_str.is_empty() { "." } else { d_str };
+
+        let user_h = HSTRING::from(u_str);
+        let domain_h = HSTRING::from(domain_final);
+        let pass_h = HSTRING::from(pass);
+
+        let mut token = HANDLE::default();
+        let res = unsafe {
+            LogonUserW(
+                &user_h,
+                &domain_h,
+                &pass_h,
+                LOGON32_LOGON_INTERACTIVE,
+                LOGON32_PROVIDER_DEFAULT,
+                &mut token,
+            )
+        };
+
+        match res {
+            Ok(_) => {
+                unsafe {
+                    let _ = CloseHandle(token);
+                }
+                WindowsLogonResult {
+                    success: true,
+                    error_code: 0,
+                    message: format!("Autenticación correcta en Windows para '{}'. Desbloqueo verificado.", u_str),
+                    detected_user,
+                }
+            }
+            Err(e) => {
+                let code = (e.code().0 as u32) & 0xFFFF;
+                let explanation = match code {
+                    1326 => "Error 1326: Usuario o contraseña incorrectos. Si usas cuenta de Microsoft, tu usuario local suele ser el nombre de tu carpeta personal (compruébalo ejecutando 'whoami' en PowerShell).",
+                    1327 => "Error 1327: Restricción de cuenta (contraseña en blanco o restricción de horario).",
+                    1330 => "Error 1330: La contraseña de la cuenta ha caducado.",
+                    1331 => "Error 1331: La cuenta de usuario está deshabilitada.",
+                    1909 => "Error 1909: La cuenta de usuario está bloqueada.",
+                    _ => "Error al autenticar con Windows.",
+                };
+                WindowsLogonResult {
+                    success: false,
+                    error_code: code,
+                    message: format!("{} (Código Windows {})", explanation, code),
+                    detected_user,
+                }
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (domain, user, pass);
+        WindowsLogonResult {
+            success: true,
+            error_code: 0,
+            message: "Simulación no-Windows".to_string(),
+            detected_user,
+        }
+    }
+}
+
+/// Returns the current Windows user domain and username from environment.
+pub fn get_system_username_info() -> (String, String) {
+    let domain = std::env::var("USERDOMAIN").unwrap_or_else(|_| ".".to_string());
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    (domain, user)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +352,16 @@ mod tests {
         assert!(!vault.exists());
 
         let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_validate_windows_logon_with_invalid_password_returns_error_1326() {
+        let (domain, user) = get_system_username_info();
+        if !user.is_empty() {
+            let res = validate_windows_logon(&domain, &user, "WrongPasswordDefinitelyInvalid123456!");
+            assert!(!res.success);
+            assert_eq!(res.error_code, 1326);
+        }
     }
 }

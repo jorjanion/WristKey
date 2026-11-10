@@ -57,7 +57,7 @@ Windows include una funzione denominata *Blocco dinamico* (Dynamic Lock), ma pre
 ## 📥 Installazione
 
 Scarica il programma di installazione ufficiale da **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)**:
-* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
+* 📦 **[WristKey_0.5.0_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.5.0/WristKey_0.5.0_x64-setup.exe)**
 
 ---
 

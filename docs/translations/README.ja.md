@@ -57,7 +57,7 @@ Windows には標準で「動的ロック」（Dynamic Lock）が備わってい
 ## 📥 インストール方法
 
 **[GitHub Releases 公式ページ](https://github.com/jorjanion/WristKey/releases)** からインストーラーをダウンロードしてください：
-* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
+* 📦 **[WristKey_0.5.0_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.5.0/WristKey_0.5.0_x64-setup.exe)**
 
 ---
 

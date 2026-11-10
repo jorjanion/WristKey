@@ -57,7 +57,7 @@ Windows 기본 기능인 "동적 잠금"(Dynamic Lock)은 일상적인 업무 �
 ## 📥 설치 방법
 
 **[GitHub Releases 공식 릴리즈 페이지](https://github.com/jorjanion/WristKey/releases)**에서 최신 설치 파일을 다운로드하세요:
-* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
+* 📦 **[WristKey_0.5.0_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.5.0/WristKey_0.5.0_x64-setup.exe)**
 
 ---
 

@@ -109,7 +109,7 @@ async function checkForUpdates() {
         });
         if (response.ok) {
             const release = await response.json();
-            const currentVersion = "0.4.20";
+            const currentVersion = "0.5.0";
             const tag = release.tag_name || "";
             const latestClean = tag.replace(/^v/, "");
 
@@ -428,7 +428,30 @@ function updateThresholdMarkers() {
 function initVaultHandlers() {
     const btnSaveVault = document.getElementById("btn-save-vault");
     const btnTestVault = document.getElementById("btn-test-vault");
+    const btnTestLogon = document.getElementById("btn-test-logon");
     const vaultFeedback = document.getElementById("vault-feedback");
+
+    // Detect current system user and domain
+    invoke("get_system_user").then(([sysDomain, sysUser]) => {
+        const userHint = document.getElementById("vault-user-hint");
+        const usernameInput = document.getElementById("vault-username");
+        const domainInput = document.getElementById("vault-domain");
+        if (userHint && sysUser) {
+            userHint.innerHTML = t("step3.user_hint", { sysUser, sysDomain });
+            userHint.style.cursor = "pointer";
+            userHint.title = t("step3.click_to_fill");
+            userHint.addEventListener("click", () => {
+                if (usernameInput) usernameInput.value = sysUser;
+                if (domainInput && sysDomain) domainInput.value = sysDomain;
+            });
+            if (usernameInput && !usernameInput.value) {
+                usernameInput.value = sysUser;
+            }
+            if (domainInput && !domainInput.value) {
+                domainInput.value = sysDomain || ".";
+            }
+        }
+    }).catch(() => {});
 
     if (btnSaveVault) {
         btnSaveVault.addEventListener("click", async () => {
@@ -461,6 +484,31 @@ function initVaultHandlers() {
                 vaultFeedback.innerHTML = `<span style="color: var(--success)">${t("step3.succ_test", { user: res.username, domain: res.domain })}</span>`;
             } catch (err) {
                 vaultFeedback.innerHTML = `<span style="color: var(--danger)">${t("step3.err_test", { err })}</span>`;
+            }
+        });
+    }
+
+    if (btnTestLogon) {
+        btnTestLogon.addEventListener("click", async () => {
+            const domain = document.getElementById("vault-domain").value.trim() || ".";
+            const username = document.getElementById("vault-username").value.trim();
+            const password = document.getElementById("vault-password").value;
+
+            if (!username || !password) {
+                vaultFeedback.innerHTML = `<span style="color: var(--danger)">${t("step3.err_missing")}</span>`;
+                return;
+            }
+
+            vaultFeedback.innerHTML = `<span style="color: var(--text-secondary)">${t("step3.testing_logon")}</span>`;
+            try {
+                const res = await invoke("test_windows_logon", { domain, user: username, pass: password });
+                if (res.success) {
+                    vaultFeedback.innerHTML = `<span style="color: var(--success); font-weight: 500;">✓ ${t("step3.succ_logon", { user: username })}</span>`;
+                } else {
+                    vaultFeedback.innerHTML = `<span style="color: var(--danger)">❌ ${res.message}</span>`;
+                }
+            } catch (err) {
+                vaultFeedback.innerHTML = `<span style="color: var(--danger)">❌ ${err}</span>`;
             }
         });
     }

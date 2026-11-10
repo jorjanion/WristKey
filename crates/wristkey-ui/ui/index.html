@@ -15,7 +15,7 @@
                 <img src="icon.png" alt="WristKey Logo" class="brand-logo" width="34" height="34">
                 <div class="brand-text">
                     <h1>WristKey</h1>
-                    <span class="version-tag">v0.4.20 Fluent</span>
+                    <span class="version-tag">v0.5.0 Fluent</span>
                 </div>
             </div>
 
@@ -208,6 +208,7 @@
                     <div class="form-group">
                         <label for="vault-username" data-i18n="step3.lbl_user">Windows Username</label>
                         <input type="text" id="vault-username" class="text-input" placeholder="e.g. Jorge" data-i18n-ph="step3.ph_user">
+                        <small id="vault-user-hint" style="color: var(--text-secondary); display: block; margin-top: 5px; font-size: 12px;"></small>
                     </div>
 
                     <div class="form-group">
@@ -215,9 +216,10 @@
                         <input type="password" id="vault-password" class="text-input" placeholder="Enter your regular password" data-i18n-ph="step3.ph_pass">
                     </div>
 
-                    <div class="vault-actions">
+                    <div class="vault-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
                         <button id="btn-save-vault" class="btn btn-primary" data-i18n="step3.btn_save">Save in DPAPI Vault</button>
                         <button id="btn-test-vault" class="btn btn-secondary" data-i18n="step3.btn_test">Verify Encryption</button>
+                        <button id="btn-test-logon" class="btn btn-secondary" data-i18n="step3.btn_test_logon">🔑 Test Windows Logon</button>
                     </div>
                     <div id="vault-feedback" class="feedback-text"></div>
                 </div>

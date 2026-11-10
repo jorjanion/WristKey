@@ -29,7 +29,7 @@ Al crear un nuevo issue, incluye la mayor cantidad de contexto técnico posible:
    - **Versión de watchOS:** (ej. watchOS 10.6.2, 11.1).
    - **Versión de Windows:** (ej. Windows 11 23H2 / 24H2, Windows 10 22H2).
    - **Adaptador Bluetooth del PC:** (ej. Intel Wi-Fi 6E AX210 integrado, dongle USB Realtek, etc.).
-   - **Versión de WristKey:** (ej. v0.4.19).
+   - **Versión de WristKey:** (ej. v0.5.0).
 
 2. **Diagnóstico y Telemetría RF (Muy recomendado):**
    Si el problema está relacionado con la detección de proximidad, el escáner o el bloqueo/desbloqueo, puedes capturar la telemetría en vivo ejecutando en una terminal:

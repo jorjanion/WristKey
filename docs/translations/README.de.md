@@ -57,7 +57,7 @@ Windows bietet die Funktion *Dynamische Sperre* (Dynamic Lock), die jedoch im Al
 ## 📥 Installation
 
 Laden Sie das offizielle Installationsprogramm von der **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)**-Seite herunter:
-* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
+* 📦 **[WristKey_0.5.0_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.5.0/WristKey_0.5.0_x64-setup.exe)**
 
 ---
 

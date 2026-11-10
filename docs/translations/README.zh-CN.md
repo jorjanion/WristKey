@@ -64,7 +64,7 @@ Windows 系统自带了所谓的“动态锁”（Dynamic Lock），但在日常
 ## 📥 下载与安装
 
 请前往 **[GitHub Releases 官方发布页](https://github.com/jorjanion/WristKey/releases)** 下载最新安装包：
-* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
+* 📦 **[WristKey_0.5.0_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.5.0/WristKey_0.5.0_x64-setup.exe)**
 
 直接双击运行 `.exe` 即可完成安装，并生成桌面快捷方式及托盘后台服务。
 

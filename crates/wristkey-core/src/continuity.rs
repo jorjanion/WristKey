@@ -180,10 +180,12 @@ impl AppleContinuityFrame {
 
             // Apple Watch Hardware Device Identification:
             // 1. Action Code 0x0A (ACTION_WATCH_ON_WRIST_UNLOCKED)
-            // 2. Auto-Unlock capability bit in status flags (0xC0)
-            // 3. Apple Hardware Device Class: When Nearby Info has length >= 7, payload[6] is (device_class << 3).
+            // 2. Action Code 0x0B (ACTION_RECENT_INTERACTION - user touched screen, raised wrist, or interacted)
+            // 3. Auto-Unlock capability bit in status flags (0xC0)
+            // 4. Apple Hardware Device Class: When Nearby Info has length >= 7, payload[6] is (device_class << 3).
             //    Device Class 5 = Apple Watch (0x28)!
             let is_watch = action_code == ACTION_WATCH_ON_WRIST_UNLOCKED
+                || action_code == ACTION_RECENT_INTERACTION
                 || auto_unlock
                 || (payload.len() >= 7 && (payload[payload.len() - 1] >> 3) == 5);
 
@@ -262,13 +264,17 @@ impl AppleContinuityFrame {
     /// Returns true if this frame is confirmed to originate from an Apple Watch:
     /// - Magic Switch frame (0x0B) - Apple Watch wrist beacon
     /// - Action Code 0x0A (Watch on wrist & unlocked)
+    /// - Action Code 0x0B (Recent user interaction / screen touch)
     /// - Auto Unlock capability flags enabled (Bit 6 or 7 of status byte)
     /// - Hardware Device Class 5 == Apple Watch (0x28 byte in Nearby Info payload >= 7 bytes)
     pub fn is_confirmed_apple_watch(&self) -> bool {
         match self.message_type {
             TYPE_MAGIC_SWITCH => true,
             TYPE_NEARBY_INFO => {
-                if self.action_code == Some(ACTION_WATCH_ON_WRIST_UNLOCKED) || self.auto_unlock_capable {
+                if self.action_code == Some(ACTION_WATCH_ON_WRIST_UNLOCKED)
+                    || self.action_code == Some(ACTION_RECENT_INTERACTION)
+                    || self.auto_unlock_capable
+                {
                     return true;
                 }
                 // Hardware Device Class 5 == Apple Watch:
@@ -357,6 +363,18 @@ mod tests {
         assert!(frame2.is_on_wrist);
         assert!(frame2.is_on_wrist_and_unlocked);
         assert!(frame2.is_apple_watch());
+    }
+
+    #[test]
+    fn test_parse_nearby_info_interaction_without_autounlock_flag() {
+        // Recent interaction (action 0x0B) with status 0x04 (Wi-Fi on, no auto-unlock flag)
+        let raw = vec![0x10, 0x05, 0x1B, 0x04, 0x11, 0x22, 0x33];
+        let frame = AppleContinuityFrame::parse(&raw).expect("Must parse");
+        assert_eq!(frame.action_code, Some(ACTION_RECENT_INTERACTION));
+        assert!(!frame.is_locked);
+        assert!(frame.is_on_wrist);
+        assert!(frame.is_on_wrist_and_unlocked);
+        assert!(frame.is_apple_watch());
     }
 
     #[test]

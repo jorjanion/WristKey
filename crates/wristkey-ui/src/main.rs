@@ -132,9 +132,8 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
         lock.retain(|_, entry| now.duration_since(entry.last_seen).as_secs() < 8);
 
         for entry in lock.values() {
-            // ONLY return Apple Watches detected on wrist in desk/room proximity (RSSI >= -76 dBm)
-            // Distant devices from other rooms (e.g. father's watch in another room at -81 dBm) are excluded.
-            if entry.device.on_wrist && entry.device.rssi >= -76 {
+            // ONLY return Apple Watches detected on wrist in desk/room proximity (RSSI >= -82 dBm)
+            if entry.device.on_wrist && entry.device.rssi >= -82 {
                 let mut dev = entry.device.clone();
                 dev.last_seen_ms_ago = now.duration_since(entry.last_seen).as_millis() as u64;
                 results.push(dev);
@@ -144,10 +143,12 @@ fn get_discovered_devices() -> Vec<DiscoveredDeviceDto> {
 
     // Sort order:
     // 1. Confirmed Apple Watches FIRST
-    // 2. Highest RSSI (closest to desk) SECOND
+    // 2. Confirmed on-wrist SECOND
+    // 3. Highest RSSI (closest to desk) THIRD
     results.sort_by(|a, b| {
         b.is_confirmed_watch
             .cmp(&a.is_confirmed_watch)
+            .then_with(|| b.on_wrist.cmp(&a.on_wrist))
             .then_with(|| b.rssi.cmp(&a.rssi))
     });
 
@@ -190,7 +191,7 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
             } else {
                 let mut watches: Vec<_> = lock
                     .values()
-                    .filter(|e| e.device.on_wrist && e.device.rssi >= -76)
+                    .filter(|e| e.device.on_wrist && e.device.rssi >= -82)
                     .collect();
                 watches.sort_by(|a, b| {
                     b.device.is_confirmed_watch
@@ -202,7 +203,7 @@ fn get_live_proximity(mac: Option<String>) -> ProximityReadingDto {
         } else {
             let mut watches: Vec<_> = lock
                 .values()
-                .filter(|e| e.device.on_wrist && e.device.rssi >= -76)
+                .filter(|e| e.device.on_wrist && e.device.rssi >= -82)
                 .collect();
             watches.sort_by(|a, b| {
                 b.device.is_confirmed_watch
@@ -465,6 +466,16 @@ fn test_vault() -> Result<UserCredentials, String> {
 }
 
 #[tauri::command]
+fn test_windows_logon(domain: String, user: String, pass: String) -> wristkey_core::WindowsLogonResult {
+    wristkey_core::validate_windows_logon(&domain, &user, &pass)
+}
+
+#[tauri::command]
+fn get_system_user() -> (String, String) {
+    wristkey_core::get_system_username_info()
+}
+
+#[tauri::command]
 fn test_workstation_lock() -> Result<(), String> {
     lock_workstation().map_err(|e| e.to_string())
 }
@@ -564,15 +575,15 @@ fn start_background_scanner() {
                         // STRICT APPLE WATCH ADMISSION:
                         // Reject iPhones, iPads, Macs, and accessories.
                         // Only confirmed Apple Watch frames are admitted.
-                        // If it's not a confirmed watch, we ONLY accept it if mac_str was ALREADY confirmed
-                        // as our Apple Watch and is now reporting locked/off-wrist state (is_locked == true).
+                        // Once a MAC is confirmed as an Apple Watch, subsequent continuity frames
+                        // (e.g. state changes, user interactions, or locking/charging) from that MAC are admitted.
                         let was_already_watch = if let Ok(lock) = DEVICES.lock() {
                             lock.get(&mac_str).map_or(false, |e| e.device.is_confirmed_watch)
                         } else {
                             false
                         };
 
-                        if !frame.is_confirmed_apple_watch() && !(was_already_watch && (frame.is_locked || !frame.is_on_wrist)) {
+                        if !frame.is_confirmed_apple_watch() && !was_already_watch {
                             continue;
                         }
 
@@ -852,6 +863,15 @@ fn main() {
     start_ipc_server();
 
     tauri::Builder::default()
+        .setup(|app| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                if let Some(icon) = app.default_window_icon() {
+                    let _ = window.set_icon(icon.clone());
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_discovered_devices,
             get_device_rssi,
@@ -864,6 +884,8 @@ fn main() {
             verify_irk,
             save_credentials,
             test_vault,
+            test_windows_logon,
+            get_system_user,
             test_workstation_lock,
             get_autostart_enabled,
             set_autostart_enabled,

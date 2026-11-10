@@ -65,7 +65,7 @@ Similar a la funcionalidad nativa de **Auto Unlock en macOS** y a **`watch-unloc
 ## 📥 Instalación
 
 Descarga el instalador oficial desde la sección de **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)**:
-* 📦 **[WristKey_0.4.20_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.20/WristKey_0.4.20_x64-setup.exe)**
+* 📦 **[WristKey_0.5.0_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.5.0/WristKey_0.5.0_x64-setup.exe)**
 
 Ejecuta el archivo `.exe` para instalar WristKey en tu equipo con su acceso directo y servicio en segundo plano. Permite seleccionar tu idioma predilecto durante la instalación y cambiarlo en cualquier momento desde la app.
 
@@ -84,7 +84,7 @@ Al ejecutar el instalador por primera vez en Windows 11 o 10, es posible que vea
 </div>
 
 #### ¿Por qué ocurre esto?
-1. **Falta de reputación en la nube de Microsoft:** SmartScreen es un filtro basado en telemetría de Microsoft. Cada versión nueva (`v0.4.19`, etc.) genera un binario nuevo con un hash criptográfico único que la nube de Microsoft aún no ha visto miles de veces descargado.
+1. **Falta de reputación en la nube de Microsoft:** SmartScreen es un filtro basado en telemetría de Microsoft. Cada versión nueva (`v0.5.0`, etc.) genera un binario nuevo con un hash criptográfico único que la nube de Microsoft aún no ha visto miles de veces descargado.
 2. **Coste de los certificados de firma de código (EV):** Para que Windows no muestre advertencias en aplicaciones de escritorio recién creadas, Microsoft exige que los desarrolladores adquieran un certificado *EV Code Signing* que cuesta entre **$300 y $500 al año** mediante empresas de certificación corporativas (DigiCert, Sectigo). En proyectos comunitarios y de código abierto independientes, este gasto no es viable.
 3. **Seguridad y Privacidad 100% Verificable:**
    - WristKey es **100% código abierto** (Open Source).

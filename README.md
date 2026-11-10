@@ -65,7 +65,7 @@ Similar to the native **Auto Unlock feature in macOS** and **`watch-unlock-rs` i
 ## 📥 Installation
 
 Download the official standalone installer from the **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)** page:
-* 📦 **[WristKey_0.4.20_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.20/WristKey_0.4.20_x64-setup.exe)**
+* 📦 **[WristKey_0.5.0_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.5.0/WristKey_0.5.0_x64-setup.exe)**
 
 Run the `.exe` installer. It includes language selection during setup (English, Spanish, French, Portuguese, German, Italian, Chinese, Korean, Japanese) and allows switching languages at any time directly within the application.
 
@@ -84,7 +84,7 @@ When running the installer for the first time on Windows 11 or 10, Microsoft Def
 </div>
 
 #### Why does this happen?
-1. **Cloud Telemetry Reputation:** SmartScreen is Microsoft's telemetry-based reputation system. Each newly compiled release (`v0.4.19`, etc.) produces a fresh binary with a unique cryptographic hash that hasn't accumulated tens of thousands of downloads in Microsoft's telemetry database yet.
+1. **Cloud Telemetry Reputation:** SmartScreen is Microsoft's telemetry-based reputation system. Each newly compiled release (`v0.5.0`, etc.) produces a fresh binary with a unique cryptographic hash that hasn't accumulated tens of thousands of downloads in Microsoft's telemetry database yet.
 2. **Cost of EV Code Signing Certificates:** To suppress warnings on newly compiled desktop apps, Microsoft requires developers to buy an *Extended Validation (EV) Code Signing Certificate*, which costs **$300 to $500 per year** through enterprise certificate authorities (DigiCert, Sectigo). For independent, community-driven open-source projects, this cost is prohibitive.
 3. **100% Verifiable Security & Privacy:**
    - WristKey is **100% Open Source**.
