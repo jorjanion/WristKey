@@ -20,8 +20,7 @@
 
 <p align="center">
   🌐 <strong>多语言支持 / Languages:</strong><br>
-  <a href="../../README.md">Español</a> | 
-  <a href="README.en.md">English</a> | 
+  <a href="../../README.md">English (Main)</a> | <a href="README.es.md">Español</a> | 
   <a href="README.fr.md">Français</a> | 
   <a href="README.pt.md">Português</a> | 
   <a href="README.de.md">Deutsch</a> | 
@@ -65,7 +64,7 @@ Windows 系统自带了所谓的“动态锁”（Dynamic Lock），但在日常
 ## 📥 下载与安装
 
 请前往 **[GitHub Releases 官方发布页](https://github.com/jorjanion/WristKey/releases)** 下载最新安装包：
-* 📦 **[WristKey_0.4.18_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.18/WristKey_0.4.18_x64-setup.exe)**
+* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
 
 直接双击运行 `.exe` 即可完成安装，并生成桌面快捷方式及托盘后台服务。
 

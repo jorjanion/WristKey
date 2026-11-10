@@ -20,8 +20,7 @@
 
 <p align="center">
   🌐 <strong>Idiomas / Languages:</strong><br>
-  <a href="../../README.md">Español</a> | 
-  <a href="README.en.md">English</a> | 
+  <a href="../../README.md">English (Main)</a> | <a href="README.es.md">Español</a> | 
   <a href="README.fr.md">Français</a> | 
   <strong>Português</strong> | 
   <a href="README.de.md">Deutsch</a> | 
@@ -58,7 +57,7 @@ O Windows inclui um recurso chamado *Bloqueio Dinâmico* (Dynamic Lock), mas ele
 ## 📥 Instalação
 
 Baixe o instalador oficial na página de **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)**:
-* 📦 **[WristKey_0.4.18_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.18/WristKey_0.4.18_x64-setup.exe)**
+* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
 
 ---
 

@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Proximity Auto-Lock & Hands-Free Unlock for Windows 11 / 10 using Apple Watch via BLE</strong><br>
-  <em>La experiencia fluida de Auto Unlock de macOS traída de forma nativa a Windows.</em>
+  <em>The seamless macOS Auto Unlock experience brought natively to Windows.</em>
 </p>
 
 <p align="center">
@@ -19,9 +19,9 @@
 </p>
 
 <p align="center">
-  🌐 <strong>Idiomas / Languages:</strong><br>
-  <strong>Español (Principal)</strong> | 
-  <a href="docs/translations/README.en.md">English</a> | 
+  🌐 <strong>Languages / Idiomas:</strong><br>
+  <strong>English (Main)</strong> | 
+  <a href="docs/translations/README.es.md">Español</a> | 
   <a href="docs/translations/README.fr.md">Français</a> | 
   <a href="docs/translations/README.pt.md">Português</a> | 
   <a href="docs/translations/README.de.md">Deutsch</a> | 
@@ -35,70 +35,70 @@
 
 <div align="center">
   <img src="assets/dashboard_active_protection.png" alt="WristKey Fluent Dashboard" width="760" style="border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 30px rgba(0,0,0,0.5);" />
-  <p><em>Panel de Protección Activa en tiempo real · Medición RSSI continua y verificación óptica en muñeca</em></p>
+  <p><em>Real-Time Active Protection Panel · Continuous RSSI tracking and optical on-wrist validation</em></p>
 </div>
 
 ---
 
-## ⚡ ¿Por qué WristKey? / Why WristKey?
+## ⚡ Why WristKey?
 
-Windows incluye una función llamada *Bloqueo dinámico* (Dynamic Lock), pero resulta insuficiente en el día a día. **WristKey** supera estas limitaciones implementando seguimiento de proximidad real mediante el análisis del protocolo nativo Apple Continuity:
+Windows includes a feature named *Dynamic Lock*, but it falls short for daily productivity. **WristKey** overcomes these limitations by implementing genuine proximity tracking through Apple Continuity protocol analysis:
 
-| Característica / Feature | Windows Dynamic Lock | WristKey |
+| Feature | Windows Dynamic Lock | WristKey |
 | :--- | :--- | :--- |
-| **Auto-bloqueo al alejarte** | ❌ Lento (espera hasta 1 o 2 minutos) | ✅ **Inmediato y configurable** (filtro RSSI asimétrico) |
-| **Auto-desbloqueo al acercarte** | ❌ No soportado (solo bloquea) | ✅ **Desbloqueo automático manos libres** (Credential Provider) |
-| **Verificación óptica en muñeca** | ❌ Nula (sigue activo con reloj en mesa) | ✅ **Continuity 0x004C verificado** (revoca acceso al quitártelo) |
-| **Consumo de batería** | ❌ Alto (Bluetooth clásico constante) | ✅ **Ultra bajo consumo** (anuncios pasivos Bluetooth LE) |
-| **Privacidad de dirección (RPA)** | ❌ Falla cuando la MAC de BLE rota | ✅ **Resolución hardware AES-128 IRK** (`ah(IRK, prand)`) |
-| **Seguridad de credenciales** | N/A | ✅ **Cifrado local con Windows DPAPI** (nunca en texto plano) |
+| **Walk-Away Auto-Lock** | ❌ Slow (waits up to 1-2 minutes) | ✅ **Instant & Configurable** (asymmetric RSSI filter) |
+| **Approach Auto-Unlock** | ❌ Not supported (lock only) | ✅ **Hands-Free Automatic Unlock** (Credential Provider) |
+| **On-Wrist Optical Check** | ❌ None (remains active on desk/charger) | ✅ **Continuity 0x004C Verified** (revokes access when taken off) |
+| **Battery Consumption** | ❌ High (continuous classic Bluetooth polling) | ✅ **Ultra-Low Power** (passive BLE advertisements) |
+| **Address Privacy (RPA)** | ❌ Fails when BLE MAC rotates | ✅ **Hardware AES-128 IRK Resolution** (`ah(IRK, prand)`) |
+| **Credential Security** | N/A | ✅ **Encrypted via Windows DPAPI** (never in plaintext) |
 
 ---
 
-Similar a la funcionalidad nativa de **Auto Unlock en macOS** y a **`watch-unlock-rs` en Linux**, **WristKey** monitoriza continuamente en segundo plano tu Apple Watch a través de Bluetooth Low Energy (BLE):
-- 🔒 **Bloquea automáticamente tu PC** cuando te levantas o te alejas de tu escritorio.
-- 🔓 **Enciende la pantalla y desbloquea tu sesión** al regresar a tu puesto de trabajo.
-- 🛑 **Seguridad óptica en muñeca:** Si te quitas el reloj o este se bloquea con código, el acceso se revoca de inmediato.
+Similar to the native **Auto Unlock feature in macOS** and **`watch-unlock-rs` in Linux**, **WristKey** continuously monitors your Apple Watch in the background via Bluetooth Low Energy (BLE):
+- 🔒 **Automatically locks your PC** whenever you step away from your desk.
+- 🔓 **Wakes the display and logs you back in** the moment you sit down.
+- 🛑 **Optical On-Wrist Security:** If you take off the watch or lock it with a passcode, access is immediately revoked.
 
 ---
 
-## 📥 Instalación / Installation
+## 📥 Installation
 
-Descarga el instalador oficial desde la sección de **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)**:
-* 📦 **[WristKey_0.4.18_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.18/WristKey_0.4.18_x64-setup.exe)**
+Download the official standalone installer from the **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)** page:
+* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
 
-Ejecuta el archivo `.exe` para instalar WristKey en tu equipo con su acceso directo y servicio en segundo plano.
+Run the `.exe` installer. It includes language selection during setup (English, Spanish, French, Portuguese, German, Italian, Chinese, Korean, Japanese) and allows switching languages at any time directly within the application.
 
 ---
 
-### ⚠️ ¿Por qué Windows SmartScreen muestra un aviso al instalar?
+### ⚠️ Why Does Windows SmartScreen Show a Warning?
 
-Al ejecutar el instalador por primera vez en Windows 11 o 10, es posible que veas la pantalla azul de aviso de **Microsoft Defender SmartScreen** (*"Windows protegió su PC"*):
+When running the installer for the first time on Windows 11 or 10, Microsoft Defender SmartScreen may display a blue warning screen (*"Windows protected your PC"*):
 
 <div align="center">
 
-| **Paso 1:** Haz clic en **"Más información"** | **Paso 2:** Pulsa en **"Ejecutar de todas formas"** |
+| **Step 1:** Click on **"More info"** | **Step 2:** Click **"Run anyway"** |
 | :---: | :---: |
-| <img src="assets/smartscreen_step1.png" width="360" alt="Paso 1: Más información" style="border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" /> | <img src="assets/smartscreen_step2.png" width="360" alt="Paso 2: Ejecutar de todas formas" style="border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" /> |
+| <img src="assets/smartscreen_step1.png" width="360" alt="Step 1: More info" style="border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" /> | <img src="assets/smartscreen_step2.png" width="360" alt="Step 2: Run anyway" style="border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" /> |
 
 </div>
 
-#### ¿Por qué ocurre esto?
-1. **Falta de reputación en la nube de Microsoft:** SmartScreen es un filtro basado en telemetría de Microsoft. Cada versión nueva (`v0.4.18`, etc.) genera un binario nuevo con un hash criptográfico único que la nube de Microsoft aún no ha visto miles de veces descargado.
-2. **Coste de los certificados de firma de código (EV):** Para que Windows no muestre advertencias en aplicaciones de escritorio recién creadas, Microsoft exige que los desarrolladores adquieran un certificado *EV Code Signing* que cuesta entre **$300 y $500 al año** mediante empresas de certificación corporativas (DigiCert, Sectigo). En proyectos comunitarios y de código abierto independientes, este gasto no es viable.
-3. **Seguridad y Privacidad 100% Verificable:**
-   - WristKey es **100% código abierto** (Open Source).
-   - Puedes auditar todo el código fuente en Rust en este mismo repositorio.
-   - Tus contraseñas se almacenan cifradas localmente con **Windows DPAPI** (`CryptProtectData`) vinculadas a tu cuenta de usuario.
-   - No contiene telemetría de terceros ni conexiones a servidores externos.
+#### Why does this happen?
+1. **Cloud Telemetry Reputation:** SmartScreen is Microsoft's telemetry-based reputation system. Each newly compiled release (`v0.4.19`, etc.) produces a fresh binary with a unique cryptographic hash that hasn't accumulated tens of thousands of downloads in Microsoft's telemetry database yet.
+2. **Cost of EV Code Signing Certificates:** To suppress warnings on newly compiled desktop apps, Microsoft requires developers to buy an *Extended Validation (EV) Code Signing Certificate*, which costs **$300 to $500 per year** through enterprise certificate authorities (DigiCert, Sectigo). For independent, community-driven open-source projects, this cost is prohibitive.
+3. **100% Verifiable Security & Privacy:**
+   - WristKey is **100% Open Source**.
+   - You can inspect every line of Rust code directly in this repository.
+   - User credentials are encrypted locally on your machine via **Windows DPAPI** (`CryptProtectData`) tied to your Windows user account master key.
+   - Zero third-party telemetry, tracking, or external network requests.
 
-#### ¿Cómo continuar con la instalación?
-1. En la primera pantalla, haz clic en el enlace subrayado **"Más información"** (*"More info"*).
-2. Aparecerá el botón adicional en la parte inferior izquierda; pulsa en **"Ejecutar de todas formas"** (*"Run anyway"*).
+#### How to proceed with installation:
+1. On the initial SmartScreen dialog, click the underlined link: **"More info"** (*"Más información"*).
+2. The **"Run anyway"** (*"Ejecutar de todas formas"*) button will appear in the bottom-left corner; click it to proceed.
 
 ---
 
-## Arquitectura y Seguridad / Architecture & Security
+## 🏗️ Architecture & Security
 
 1. **RPA Resolution (AES-128 IRK):**
    Apple devices rotate their Bluetooth MAC address every ~15 minutes (Resolvable Private Address). WristKey resolves RPAs against the paired watch's Identity Resolving Key (IRK) using hardware AES-128 (`ah(IRK, prand)` per Bluetooth SIG Core Spec).
@@ -156,7 +156,7 @@ cargo run -p wristkey-cli -- --scan
 ```
 
 #### 2. Signal & Distance Calibrator (`--calibrate`)
-Displays a live visual RSSI signal meter and estimated distance in meters. Use this to determine optimal lock and unlock thresholds for your workspace:
+Displays a live visual RSSI signal meter and estimated distance in meters:
 ```powershell
 cargo run -p wristkey-cli -- --calibrate
 ```
@@ -181,29 +181,9 @@ cargo run -p wristkey-cli -- --telemetry
 
 ---
 
-## 🤝 Contribuir y Reportar Errores / Contributing & Issues
+## 🤝 Contributing & Community
 
-¡Damos la bienvenida a cualquier contribución de la comunidad! Puedes colaborar de las siguientes formas:
-
-### 1. Reportar un Bug / Abrir un Issue
-Si encuentras un comportamiento inesperado o tu reloj no se detecta adecuadamente:
-1. Dirígete a la pestaña de **[GitHub Issues](https://github.com/jorjanion/WristKey/issues/new/choose)**.
-2. Selecciona la plantilla de **Reporte de Error** e incluye:
-   - Modelo exacto de Apple Watch y versión de watchOS (ej. Apple Watch SE, watchOS 10.6.2).
-   - Versión de Windows y modelo de adaptador Bluetooth del PC.
-   - Salida del comando de telemetría: `cargo run -p wristkey-cli -- --telemetry`.
-   - Comportamiento observado vs comportamiento esperado.
-
-### 2. Proponer una Mejora
-Si tienes una idea para una nueva característica, abre un issue con la plantilla **Solicitud de Función / Feature Request**.
-
-### 3. Enviar un Pull Request (PR)
-1. Haz un fork del repositorio y crea una rama para tu cambio (`git checkout -b feature/nombre-mejora`).
-2. Verifica que toda la suite de pruebas unitarias pase: `cargo test --workspace`.
-3. Comprueba el formato de código: `cargo fmt --check`.
-4. Abre tu Pull Request en GitHub describiendo detalladamente la solución.
-
-Para una guía paso a paso completa, consulta el archivo **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+We welcome contributions from the community! Check out our **[CONTRIBUTING.md](CONTRIBUTING.md)** guide to get started with bug reports, feature requests, and Pull Requests.
 
 ---
 

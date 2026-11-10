@@ -20,8 +20,7 @@
 
 <p align="center">
   🌐 <strong>言語 / Languages:</strong><br>
-  <a href="../../README.md">Español</a> | 
-  <a href="README.en.md">English</a> | 
+  <a href="../../README.md">English (Main)</a> | <a href="README.es.md">Español</a> | 
   <a href="README.fr.md">Français</a> | 
   <a href="README.pt.md">Português</a> | 
   <a href="README.de.md">Deutsch</a> | 
@@ -58,7 +57,7 @@ Windows には標準で「動的ロック」（Dynamic Lock）が備わってい
 ## 📥 インストール方法
 
 **[GitHub Releases 公式ページ](https://github.com/jorjanion/WristKey/releases)** からインストーラーをダウンロードしてください：
-* 📦 **[WristKey_0.4.18_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.18/WristKey_0.4.18_x64-setup.exe)**
+* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
 
 ---
 

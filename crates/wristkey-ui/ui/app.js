@@ -109,7 +109,7 @@ async function checkForUpdates() {
         });
         if (response.ok) {
             const release = await response.json();
-            const currentVersion = "0.4.18";
+            const currentVersion = "0.4.19";
             const tag = release.tag_name || "";
             const latestClean = tag.replace(/^v/, "");
 
@@ -155,13 +155,13 @@ function showUpdateBanner(update) {
 
     btnUpdate.onclick = async () => {
         btnUpdate.disabled = true;
-        btnUpdate.textContent = "Descargando e instalando...";
+        btnUpdate.textContent = t("update.downloading");
         try {
             await invoke("download_and_install_update", { downloadUrl: update.download_url });
         } catch (err) {
-            alert("Error al descargar actualización: " + err);
+            alert("Error: " + err);
             btnUpdate.disabled = false;
-            btnUpdate.textContent = "Reintentar";
+            btnUpdate.textContent = t("update.retry");
         }
     };
 
@@ -170,35 +170,35 @@ function showUpdateBanner(update) {
     };
 }
 
-// Convert raw dBm into everyday human-readable proximity
+// Convert raw dBm into everyday human-readable proximity using current language
 function getHumanSignal(rssi) {
     if (rssi >= -52) {
         return {
-            distance: "Al lado del PC (< 0.5 m)",
-            quality: "Señal óptima",
+            distance: t("signal.very_near_dist"),
+            quality: t("signal.very_near_qual"),
             colorClass: "proximity-very-near",
-            bars: "📶 Fuerte"
+            bars: t("signal.very_near_bars")
         };
     } else if (rssi >= -65) {
         return {
-            distance: "En el escritorio (~1 m)",
-            quality: "Señal buena",
+            distance: t("signal.near_dist"),
+            quality: t("signal.near_qual"),
             colorClass: "proximity-near",
-            bars: "📶 Buena"
+            bars: t("signal.near_bars")
         };
     } else if (rssi >= -76) {
         return {
-            distance: "En la habitación (~2-3 m)",
-            quality: "Señal media",
+            distance: t("signal.mid_dist"),
+            quality: t("signal.mid_qual"),
             colorClass: "proximity-mid",
-            bars: "📶 Media"
+            bars: t("signal.mid_bars")
         };
     } else {
         return {
-            distance: "Lejos (> 4 m)",
-            quality: "Señal débil",
+            distance: t("signal.far_dist"),
+            quality: t("signal.far_qual"),
             colorClass: "proximity-far",
-            bars: "📶 Lejos"
+            bars: t("signal.far_bars")
         };
     }
 }
@@ -251,15 +251,17 @@ function initScannerControls() {
     btnToggle.addEventListener("click", () => {
         isScanning = !isScanning;
         if (isScanning) {
-            btnToggle.textContent = "Buscando...";
+            btnToggle.textContent = t("step1.scanning");
             btnToggle.classList.replace("btn-secondary", "btn-primary");
-            scanStatusText.textContent = "Escuchando emisiones Bluetooth de tu Apple Watch en muñeca";
-            document.querySelector(".radar-sweep").style.display = "block";
+            scanStatusText.textContent = t("step1.status_scanning");
+            const sweep = document.querySelector(".radar-sweep");
+            if (sweep) sweep.style.display = "block";
         } else {
-            btnToggle.textContent = "Reanudar búsqueda";
+            btnToggle.textContent = t("step1.paused");
             btnToggle.classList.replace("btn-primary", "btn-secondary");
-            scanStatusText.textContent = "Búsqueda en pausa";
-            document.querySelector(".radar-sweep").style.display = "none";
+            scanStatusText.textContent = t("step1.status_paused");
+            const sweep = document.querySelector(".radar-sweep");
+            if (sweep) sweep.style.display = "none";
         }
     });
 }
@@ -285,9 +287,9 @@ function renderDiscoveredDevices(devices) {
     if (!devices || devices.length === 0) {
         list.innerHTML = `
             <div class="empty-state">
-                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px;">Buscando tu Apple Watch en tu muñeca...</div>
+                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px;">${t("step1.empty_title")}</div>
                 <div style="font-size: 12px; color: var(--text-secondary); max-width: 440px; margin: 0 auto; line-height: 1.6;">
-                    Ponte el reloj en la muñeca y desbloquéalo (o toca la pantalla). WristKey filtra automáticamente cualquier otro teléfono o dispositivo de la casa.
+                    ${t("step1.empty_desc")}
                 </div>
             </div>
         `;
@@ -336,7 +338,7 @@ function renderDiscoveredDevices(devices) {
         const isSelected = selectedMac === dev.mac;
         item.className = `device-item ${isSelected ? "selected" : ""} ${isClosestWatch ? "is-closest" : ""}`;
 
-        const closestBadge = isClosestWatch ? '<span class="badge-closest">⭐ TU APPLE WATCH</span>' : '';
+        const closestBadge = isClosestWatch ? `<span class="badge-closest">${t("step1.badge_your_watch")}</span>` : '';
 
         item.innerHTML = `
             <div>
@@ -344,7 +346,7 @@ function renderDiscoveredDevices(devices) {
                     <span class="badge-watch">⌚ ${dev.name}</span>
                     ${closestBadge}
                 </div>
-                <div style="font-size: 11.5px; color: var(--text-secondary); font-family: monospace;">${dev.mac} · Detectado en muñeca</div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); font-family: monospace;">${dev.mac} · ${t("step1.detected_on_wrist")}</div>
             </div>
             <div style="text-align: right;">
                 <div class="proximity-tag ${signal.colorClass}">
@@ -408,13 +410,18 @@ function updateThresholdMarkers() {
     if (markerUnlock) {
         markerUnlock.style.left = `${unlockPct}%`;
         const lbl = markerUnlock.querySelector(".marker-label");
-        if (lbl) lbl.textContent = `🔓 Desbloqueo (${unlockThreshold} dBm)`;
+        if (lbl) lbl.textContent = t("step2.marker_unlock", { dbm: unlockThreshold });
     }
     if (markerLock) {
         markerLock.style.left = `${lockPct}%`;
         const lbl = markerLock.querySelector(".marker-label");
-        if (lbl) lbl.textContent = `🔒 Bloqueo (${lockThreshold} dBm)`;
+        if (lbl) lbl.textContent = t("step2.marker_lock", { dbm: lockThreshold });
     }
+
+    const lblLockZone = document.getElementById("dash-lbl-lock-zone");
+    const lblUnlockZone = document.getElementById("dash-lbl-unlock-zone");
+    if (lblLockZone) lblLockZone.innerHTML = t("dash.lock_zone", { dbm: `<span id="dash-lbl-lock-thresh">${lockThreshold}</span>` });
+    if (lblUnlockZone) lblUnlockZone.innerHTML = t("dash.unlock_zone", { dbm: `<span id="dash-lbl-unlock-thresh">${unlockThreshold}</span>` });
 }
 
 // Step 3: Vault Handlers (DPAPI Credential Storage)
@@ -430,7 +437,7 @@ function initVaultHandlers() {
             const password = document.getElementById("vault-password").value;
 
             if (!username || !password) {
-                vaultFeedback.innerHTML = `<span style="color: var(--danger)">Introduce usuario y contraseña/PIN de Windows.</span>`;
+                vaultFeedback.innerHTML = `<span style="color: var(--danger)">${t("step3.err_missing")}</span>`;
                 return;
             }
 
@@ -438,7 +445,7 @@ function initVaultHandlers() {
                 await invoke("save_credentials", { domain, username, password });
                 localStorage.setItem("wristkey_setup_completed", "true");
                 isSetupCompleted = true;
-                vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Credenciales guardadas y cifradas con DPAPI en Windows.</span>`;
+                vaultFeedback.innerHTML = `<span style="color: var(--success)">${t("step3.succ_saved")}</span>`;
             } catch (err) {
                 vaultFeedback.innerHTML = `<span style="color: var(--danger)">${err}</span>`;
             }
@@ -451,9 +458,9 @@ function initVaultHandlers() {
                 const res = await invoke("test_vault");
                 localStorage.setItem("wristkey_setup_completed", "true");
                 isSetupCompleted = true;
-                vaultFeedback.innerHTML = `<span style="color: var(--success)">✓ Bóveda verificada correctamente: ${res.username} (${res.domain})</span>`;
+                vaultFeedback.innerHTML = `<span style="color: var(--success)">${t("step3.succ_test", { user: res.username, domain: res.domain })}</span>`;
             } catch (err) {
-                vaultFeedback.innerHTML = `<span style="color: var(--danger)">Error al leer bóveda: ${err}</span>`;
+                vaultFeedback.innerHTML = `<span style="color: var(--danger)">${t("step3.err_test", { err })}</span>`;
             }
         });
     }
@@ -589,15 +596,15 @@ function startLiveUpdates() {
 
                 if (elState) {
                     if (reading.is_lost || reading.rssi <= lockThreshold) {
-                        elState.textContent = "LEJOS (Zona de auto-bloqueo)";
+                        elState.textContent = t("step2.state_far");
                         elState.className = "tag-far";
                         elState.style.color = "var(--danger)";
                     } else if (reading.rssi >= unlockThreshold) {
-                        elState.textContent = "CERCA (Escritorio / Desbloqueado)";
+                        elState.textContent = t("step2.state_near");
                         elState.className = "tag-near";
                         elState.style.color = "var(--success)";
                     } else {
-                        elState.textContent = "ZONA MEDIA (En la habitación / Sin cambios)";
+                        elState.textContent = t("step2.state_mid");
                         elState.className = "tag-mid";
                         elState.style.color = "var(--warning)";
                     }
@@ -613,8 +620,6 @@ function startLiveUpdates() {
                 const dashLiveStatus = document.getElementById("dash-live-status-text");
                 const dashLockVal = document.getElementById("dash-lock-val");
                 const dashUnlockVal = document.getElementById("dash-unlock-val");
-                const dashLblLock = document.getElementById("dash-lbl-lock-thresh");
-                const dashLblUnlock = document.getElementById("dash-lbl-unlock-thresh");
                 const dashWrist = document.getElementById("dash-wrist-status");
 
                 if (dashName && reading.device_name) dashName.textContent = reading.device_name;
@@ -625,8 +630,6 @@ function startLiveUpdates() {
 
                 if (dashLockVal) dashLockVal.textContent = `${lockThreshold} dBm`;
                 if (dashUnlockVal) dashUnlockVal.textContent = `${unlockThreshold} dBm`;
-                if (dashLblLock) dashLblLock.textContent = `${lockThreshold}`;
-                if (dashLblUnlock) dashLblUnlock.textContent = `${unlockThreshold}`;
 
                 const humanSig = getHumanSignal(reading.rssi);
                 if (dashZonePill) {
@@ -636,15 +639,15 @@ function startLiveUpdates() {
 
                 if (dashWrist) {
                     if (reading.is_confirmed_watch && reading.on_wrist && reading.is_unlocked && !reading.is_lost) {
-                        dashWrist.textContent = "En muñeca (Desbloqueado)";
+                        dashWrist.textContent = t("dash.val_wrist_unlocked");
                         dashWrist.className = "dash-val green";
                         dashWrist.style.color = "";
                     } else if (reading.is_confirmed_watch && (!reading.on_wrist || !reading.is_unlocked)) {
-                        dashWrist.textContent = "Fuera de muñeca / Bloqueado";
+                        dashWrist.textContent = t("dash.val_wrist_off");
                         dashWrist.className = "dash-val";
                         dashWrist.style.color = "var(--danger)";
                     } else {
-                        dashWrist.textContent = "Buscando reloj...";
+                        dashWrist.textContent = t("dash.searching_watch");
                         dashWrist.className = "dash-val";
                         dashWrist.style.color = "";
                     }
@@ -652,17 +655,17 @@ function startLiveUpdates() {
 
                 if (dashLiveStatus) {
                     if (reading.is_lost || reading.rssi <= lockThreshold) {
-                        dashLiveStatus.textContent = "LEJOS (Zona de auto-bloqueo)";
+                        dashLiveStatus.textContent = t("step2.state_far");
                         dashLiveStatus.style.color = "var(--danger)";
                         if (dashMeterBar) dashMeterBar.style.background = "var(--danger)";
                         isWorkstationLocked = true;
                     } else if (reading.rssi >= unlockThreshold) {
-                        dashLiveStatus.textContent = "CERCA (En tu escritorio / Desbloqueado)";
+                        dashLiveStatus.textContent = t("step2.state_near");
                         dashLiveStatus.style.color = "var(--success)";
                         if (dashMeterBar) dashMeterBar.style.background = "";
                         isWorkstationLocked = false;
                     } else {
-                        dashLiveStatus.textContent = "ZONA MEDIA (En la habitación)";
+                        dashLiveStatus.textContent = t("step2.state_mid");
                         dashLiveStatus.style.color = "var(--warning)";
                         if (dashMeterBar) dashMeterBar.style.background = "";
                     }

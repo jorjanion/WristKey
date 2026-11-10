@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,31 +15,45 @@
                 <img src="icon.png" alt="WristKey Logo" class="brand-logo" width="34" height="34">
                 <div class="brand-text">
                     <h1>WristKey</h1>
-                    <span class="version-tag">v0.4.18 Fluent</span>
+                    <span class="version-tag">v0.4.19 Fluent</span>
                 </div>
             </div>
 
             <nav class="wizard-nav">
                 <button class="nav-item active" data-step="1">
                     <span class="step-num">1</span>
-                    <span class="step-label">Descubrir Reloj</span>
+                    <span class="step-label" data-i18n="nav.step1">Discover Watch</span>
                 </button>
                 <button class="nav-item" data-step="2">
                     <span class="step-num">2</span>
-                    <span class="step-label">Calibrar Rango</span>
+                    <span class="step-label" data-i18n="nav.step2">Calibrate Range</span>
                 </button>
                 <button class="nav-item" data-step="3">
                     <span class="step-num">3</span>
-                    <span class="step-label">Bóveda Windows</span>
+                    <span class="step-label" data-i18n="nav.step3">Windows Vault</span>
                 </button>
                 <button class="nav-item" data-step="4">
                     <span class="step-num">4</span>
-                    <span class="step-label">Panel de Control</span>
+                    <span class="step-label" data-i18n="nav.step4">Control Dashboard</span>
                 </button>
             </nav>
 
             <div class="sidebar-footer">
-                <button id="btn-quick-lock" class="btn btn-secondary">🔒 Probar Bloqueo (user32)</button>
+                <div class="lang-selector-container">
+                    <label for="lang-select" class="lang-label" data-i18n="nav.lang_label">🌐 Language</label>
+                    <select id="lang-select" class="lang-select">
+                        <option value="en">English (US)</option>
+                        <option value="es">Español</option>
+                        <option value="fr">Français</option>
+                        <option value="pt">Português</option>
+                        <option value="de">Deutsch</option>
+                        <option value="it">Italiano</option>
+                        <option value="zh-CN">简体中文</option>
+                        <option value="ko">한국어</option>
+                        <option value="ja">日本語</option>
+                    </select>
+                </div>
+                <button id="btn-quick-lock" class="btn btn-secondary" data-i18n="nav.quick_lock">🔒 Test Lock (user32)</button>
             </div>
         </aside>
 
@@ -48,23 +62,23 @@
             <!-- Update Notification Banner -->
             <div id="update-banner" class="update-banner" style="display: none;">
                 <div class="update-banner-left">
-                    <span class="update-badge">ACTUALIZACIÓN</span>
+                    <span class="update-badge" data-i18n="update.badge">UPDATE</span>
                     <div class="update-text">
-                        <strong>¡Nueva versión disponible: <span id="update-version-tag"></span>!</strong>
-                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">Hay mejoras y correcciones disponibles para WristKey.</div>
+                        <strong><span data-i18n="update.title">New version available:</span> <span id="update-version-tag"></span>!</strong>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;" data-i18n="update.desc">Performance improvements and bug fixes available for WristKey.</div>
                     </div>
                 </div>
                 <div class="update-banner-right">
-                    <button id="btn-update-now" class="btn btn-primary btn-sm">Actualizar ahora ➔</button>
-                    <button id="btn-dismiss-update" class="btn-icon" title="Cerrar aviso">✕</button>
+                    <button id="btn-update-now" class="btn btn-primary btn-sm" data-i18n="update.btn_now">Update now ➔</button>
+                    <button id="btn-dismiss-update" class="btn-icon" title="Dismiss">✕</button>
                 </div>
             </div>
 
             <!-- STEP 1: DISCOVERY (FILTERED ONLY TO APPLE WATCH ON WRIST) -->
             <section id="step-1" class="wizard-step active">
                 <div class="step-header">
-                    <h2>Descubre tu Apple Watch</h2>
-                    <p class="subtitle">WristKey detecta automáticamente tu Apple Watch colocado en tu muñeca mediante Bluetooth Low Energy.</p>
+                    <h2 data-i18n="step1.header">Discover your Apple Watch</h2>
+                    <p class="subtitle" data-i18n="step1.subtitle">WristKey automatically detects your Apple Watch worn on your wrist using Bluetooth Low Energy.</p>
                 </div>
 
                 <div class="radar-container">
@@ -76,21 +90,21 @@
                 </div>
 
                 <div class="scanner-controls">
-                    <button id="btn-toggle-scan" class="btn btn-primary">Buscando...</button>
-                    <span id="scan-status-text" class="status-indicator">Escuchando emisiones Bluetooth de tu Apple Watch en muñeca</span>
+                    <button id="btn-toggle-scan" class="btn btn-primary" data-i18n="step1.scanning">Scanning...</button>
+                    <span id="scan-status-text" class="status-indicator" data-i18n="step1.status_scanning">Listening for Bluetooth broadcasts from your Apple Watch on wrist</span>
                 </div>
 
-                <div class="device-help-tip">
-                    💡 <strong>Detección automática en muñeca:</strong> Ten tu Apple Watch puesto en la muñeca y desbloqueado. WristKey filtra automáticamente cualquier iPhone, iPad u otro dispositivo de la casa para mostrar <strong>únicamente tu Apple Watch</strong>.
+                <div class="device-help-tip" data-i18n="step1.tip">
+                    💡 <strong>Automatic wrist detection:</strong> Keep your Apple Watch worn on your wrist and unlocked. WristKey automatically filters out iPhones, iPads, and other household devices to display <strong>only your Apple Watch</strong>.
                 </div>
 
                 <div class="device-list-container">
-                    <h3>Apple Watch detectado en muñeca</h3>
+                    <h3 data-i18n="step1.list_heading">Apple Watch detected on wrist</h3>
                     <div id="device-list" class="device-list">
                         <div class="empty-state">
-                            <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px;">Buscando tu Apple Watch en tu muñeca...</div>
-                            <div style="font-size: 12px; color: var(--text-secondary); max-width: 440px; margin: 0 auto; line-height: 1.6;">
-                                Ponte el reloj en la muñeca y desbloquéalo (o toca su pantalla). WristKey lo detectará y seleccionará al instante.
+                            <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px;" data-i18n="step1.empty_title">Searching for your Apple Watch on your wrist...</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); max-width: 440px; margin: 0 auto; line-height: 1.6;" data-i18n="step1.empty_desc">
+                                Put your watch on your wrist and unlock it (or tap its screen). WristKey will detect and select it instantly.
                             </div>
                         </div>
                     </div>
@@ -98,24 +112,24 @@
 
                 <div class="step-footer">
                     <div></div>
-                    <button class="btn btn-primary btn-next" data-next="2">Siguiente: Calibrar distancia ➔</button>
+                    <button class="btn btn-primary btn-next" data-next="2" data-i18n="step1.btn_next">Next: Calibrate distance ➔</button>
                 </div>
             </section>
 
             <!-- STEP 2: DISTANCE CALIBRATION -->
             <section id="step-2" class="wizard-step">
                 <div class="step-header">
-                    <h2>Calibración de Proximidad en Vivo</h2>
-                    <p class="subtitle">Observa el medidor de señal ultra-preciso en tiempo real. Ajusta los umbrales para sentarte y alejarte de tu PC.</p>
+                    <h2 data-i18n="step2.header">Live Proximity Calibration</h2>
+                    <p class="subtitle" data-i18n="step2.subtitle">Watch the ultra-accurate signal meter in real time. Adjust thresholds for sitting down and walking away from your PC.</p>
                 </div>
 
                 <div class="tracked-device-card">
                     <div class="tracked-device-info">
                         <span class="live-dot"></span>
-                        <span style="font-size: 13.5px; font-weight: 500;">Dispositivo monitorizado: <strong id="cal-tracked-name">Buscando reloj...</strong></span>
+                        <span style="font-size: 13.5px; font-weight: 500;"><span data-i18n="step2.tracked_label">Monitored device:</span> <strong id="cal-tracked-name" data-i18n="step2.searching_watch">Searching for watch...</strong></span>
                         <span id="cal-tracked-mac" class="mac-pill"></span>
                     </div>
-                    <button class="btn btn-secondary btn-sm" onclick="goToStep(1)">Cambiar reloj</button>
+                    <button class="btn btn-secondary btn-sm" onclick="goToStep(1)" data-i18n="step2.change_watch">Change watch</button>
                 </div>
 
                 <div class="calibration-display">
@@ -127,87 +141,87 @@
                         <div class="meter-bar-container">
                             <div id="cal-meter-bar" class="meter-bar" style="width: 90%;"></div>
                             <div id="marker-lock" class="meter-marker marker-lock" style="left: 19%;">
-                                <span class="marker-label">🔒 Bloqueo (-74 dBm)</span>
+                                <span class="marker-label">🔒 Lock (-74 dBm)</span>
                             </div>
                             <div id="marker-unlock" class="meter-marker marker-unlock" style="left: 57%;">
-                                <span class="marker-label">🔓 Desbloqueo (-58 dBm)</span>
+                                <span class="marker-label">🔓 Unlock (-58 dBm)</span>
                             </div>
                         </div>
                         <div class="meter-stats">
-                            <span>Distancia estimada: <strong id="cal-dist-est">~1.0m</strong></span>
-                            <span>Estado: <strong id="cal-state-tag" class="tag-near">CERCA (En tu escritorio / Desbloqueado)</strong></span>
+                            <span><span data-i18n="step2.est_dist">Estimated distance:</span> <strong id="cal-dist-est">~1.0m</strong></span>
+                            <span><span data-i18n="step2.status_label">Status:</span> <strong id="cal-state-tag" class="tag-near" data-i18n="step2.state_near">NEAR (At your desk / Unlocked)</strong></span>
                         </div>
                     </div>
                 </div>
 
                 <div class="threshold-controls card">
-                    <h3>Ajuste de Sensibilidad de Proximidad</h3>
+                    <h3 data-i18n="step2.heading_sensitivity">Proximity Sensitivity Adjustment</h3>
                     
                     <div class="slider-row">
                         <div class="slider-info">
-                            <label for="slider-unlock">Umbral de desbloqueo (En el escritorio)</label>
+                            <label for="slider-unlock" data-i18n="step2.unlock_label">Unlock threshold (At desk)</label>
                             <span id="val-unlock-dbm">-58 dBm</span>
                         </div>
                         <input type="range" id="slider-unlock" min="-75" max="-48" value="-58" class="fluent-slider">
-                        <small>El PC se desbloquea al sentarte en el escritorio (~0.8 - 1 m).</small>
+                        <small data-i18n="step2.unlock_desc">PC unlocks when you sit at your desk (~0.8 - 1 m).</small>
                     </div>
 
                     <div class="slider-row">
                         <div class="slider-info">
-                            <label for="slider-lock">Umbral de bloqueo (Al alejarte)</label>
+                            <label for="slider-lock" data-i18n="step2.lock_label">Lock threshold (Walking away)</label>
                             <span id="val-lock-dbm">-74 dBm</span>
                         </div>
                         <input type="range" id="slider-lock" min="-85" max="-65" value="-74" class="fluent-slider">
-                        <small>El PC se bloquea automáticamente al alejarte por la habitación (~2.5 - 3 m).</small>
+                        <small data-i18n="step2.lock_desc">PC locks automatically when you walk away across the room (~2.5 - 3 m).</small>
                     </div>
                 </div>
 
                 <div class="step-footer">
-                    <button class="btn btn-secondary btn-prev" data-prev="1">⬅ Volver</button>
-                    <button class="btn btn-primary btn-next" data-next="3">Siguiente: Credenciales Windows ➔</button>
+                    <button class="btn btn-secondary btn-prev" data-prev="1" data-i18n="step2.btn_prev">⬅ Back</button>
+                    <button class="btn btn-primary btn-next" data-next="3" data-i18n="step2.btn_next">Next: Windows Credentials ➔</button>
                 </div>
             </section>
 
             <!-- STEP 3: DPAPI CREDENTIAL VAULT -->
             <section id="step-3" class="wizard-step">
                 <div class="step-header">
-                    <h2>Bóveda de Credenciales Windows (DPAPI)</h2>
-                    <p class="subtitle">Para desbloquear Windows automáticamente al acercarte con tu reloj, guarda tus credenciales cifradas con Windows Data Protection API (DPAPI).</p>
+                    <h2 data-i18n="step3.header">Windows Credential Vault (DPAPI)</h2>
+                    <p class="subtitle" data-i18n="step3.subtitle">To unlock Windows automatically upon approaching with your watch, save your credentials encrypted with Windows Data Protection API (DPAPI).</p>
                 </div>
 
                 <div class="card">
                     <div class="vault-info-banner">
                         <span class="icon">🛡️</span>
-                        <div>
-                            <strong>Seguridad nativa de Windows:</strong> Las credenciales se cifran con la clave personal de tu cuenta de usuario de Windows. Ninguna contraseña en texto plano se almacena jamás en disco ni se envía por la red.
+                        <div data-i18n="step3.security_tip">
+                            <strong>Native Windows security:</strong> Credentials are encrypted with your personal Windows user account key. Plaintext passwords are never stored on disk or transmitted over the network.
                         </div>
                     </div>
 
                     <div class="form-group">
-                        <label for="vault-domain">Dominio o Equipo ('.' para local)</label>
+                        <label for="vault-domain" data-i18n="step3.lbl_domain">Domain or Computer ('.' for local)</label>
                         <input type="text" id="vault-domain" class="text-input" value=".">
                     </div>
 
                     <div class="form-group">
-                        <label for="vault-username">Nombre de Usuario Windows</label>
-                        <input type="text" id="vault-username" class="text-input" placeholder="ej. Jorge">
+                        <label for="vault-username" data-i18n="step3.lbl_user">Windows Username</label>
+                        <input type="text" id="vault-username" class="text-input" placeholder="e.g. Jorge" data-i18n-ph="step3.ph_user">
                     </div>
 
                     <div class="form-group">
-                        <label for="vault-password">Contraseña o PIN de Windows</label>
-                        <input type="password" id="vault-password" class="text-input" placeholder="Introduce tu contraseña habitual">
+                        <label for="vault-password" data-i18n="step3.lbl_pass">Windows Password or PIN</label>
+                        <input type="password" id="vault-password" class="text-input" placeholder="Enter your regular password" data-i18n-ph="step3.ph_pass">
                     </div>
 
                     <div class="vault-actions">
-                        <button id="btn-save-vault" class="btn btn-primary">Guardar en Bóveda DPAPI</button>
-                        <button id="btn-test-vault" class="btn btn-secondary">Verificar Cifrado</button>
+                        <button id="btn-save-vault" class="btn btn-primary" data-i18n="step3.btn_save">Save in DPAPI Vault</button>
+                        <button id="btn-test-vault" class="btn btn-secondary" data-i18n="step3.btn_test">Verify Encryption</button>
                     </div>
                     <div id="vault-feedback" class="feedback-text"></div>
                 </div>
 
                 <div class="step-footer">
-                    <button class="btn btn-secondary btn-prev" data-prev="2">⬅ Volver</button>
-                    <button class="btn btn-primary btn-next" data-next="4">Finalizar y Activar ➔</button>
+                    <button class="btn btn-secondary btn-prev" data-prev="2" data-i18n="step3.btn_prev">⬅ Back</button>
+                    <button class="btn btn-primary btn-next" data-next="4" data-i18n="step3.btn_finish">Finish & Activate ➔</button>
                 </div>
             </section>
 
@@ -215,10 +229,10 @@
             <section id="step-4" class="wizard-step">
                 <div class="step-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div>
-                        <h2>Panel de Protección Activa</h2>
-                        <p class="subtitle">WristKey monitoriza en tiempo real tu Apple Watch para auto-bloqueo y desbloqueo seguro.</p>
+                        <h2 data-i18n="dash.header">Active Protection Panel</h2>
+                        <p class="subtitle" data-i18n="dash.subtitle">WristKey monitors your Apple Watch in real time for secure auto-lock and unlock.</p>
                     </div>
-                    <button id="btn-reconfig" class="btn btn-secondary btn-sm" style="width: auto;">⚙️ Modificar Configuración</button>
+                    <button id="btn-reconfig" class="btn btn-secondary btn-sm" style="width: auto;" data-i18n="dash.btn_reconfig">⚙️ Modify Settings</button>
                 </div>
 
                 <!-- Main Live Proximity Card on Dashboard -->
@@ -226,11 +240,11 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span class="live-dot"></span>
-                            <strong id="dash-device-name" style="font-size: 15px;">Buscando Apple Watch...</strong>
+                            <strong id="dash-device-name" style="font-size: 15px;" data-i18n="dash.searching_watch">Searching for Apple Watch...</strong>
                             <span id="dash-mac-pill" class="mac-pill">--:--:--:--:--:--</span>
                         </div>
                         <span id="dash-zone-pill" class="proximity-tag">
-                            <span>Buscando señal...</span>
+                            <span data-i18n="dash.searching_signal">Searching for signal...</span>
                         </span>
                     </div>
 
@@ -239,7 +253,7 @@
                             <span id="dash-rssi-live">--</span> <span style="font-size: 16px; font-weight: 500; color: var(--text-secondary);">dBm</span>
                         </div>
                         <div style="font-size: 13.5px; color: var(--text-secondary);">
-                            Distancia estimada: <strong id="dash-dist-meters" style="color: var(--text-primary);">--</strong>
+                            <span data-i18n="dash.est_dist">Estimated distance:</span> <strong id="dash-dist-meters" style="color: var(--text-primary);">--</strong>
                         </div>
                     </div>
 
@@ -248,64 +262,64 @@
                         <div id="dash-meter-bar" class="meter-bar" style="width: 0%;"></div>
                     </div>
                     <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-secondary);">
-                        <span>🔒 Zona de bloqueo (&lt; <span id="dash-lbl-lock-thresh">-74</span> dBm)</span>
-                        <span id="dash-live-status-text" style="font-weight: 600; color: var(--text-secondary);">Buscando señal de tu Apple Watch...</span>
-                        <span>🔓 Zona de desbloqueo (&gt; <span id="dash-lbl-unlock-thresh">-58</span> dBm)</span>
+                        <span id="dash-lbl-lock-zone">🔒 Lock zone (&lt; <span id="dash-lbl-lock-thresh">-74</span> dBm)</span>
+                        <span id="dash-live-status-text" style="font-weight: 600; color: var(--text-secondary);" data-i18n="dash.status_listening">Searching for signal from your Apple Watch...</span>
+                        <span id="dash-lbl-unlock-zone">🔓 Unlock zone (&gt; <span id="dash-lbl-unlock-thresh">-58</span> dBm)</span>
                     </div>
                 </div>
 
                 <!-- Metrics Grid -->
                 <div class="dashboard-grid">
                     <div class="dash-card">
-                        <span class="dash-label">Estado de Protección</span>
-                        <div id="dash-motor-status" class="dash-val green">● Activo</div>
-                        <small>Monitorizando señal continuamente</small>
+                        <span class="dash-label" data-i18n="dash.card_protect">Protection Status</span>
+                        <div id="dash-motor-status" class="dash-val green" data-i18n="dash.val_active">● Active</div>
+                        <small data-i18n="dash.desc_monitoring">Monitoring signal continuously</small>
                     </div>
                     <div class="dash-card">
-                        <span class="dash-label">Detección en Muñeca</span>
-                        <div id="dash-wrist-status" class="dash-val">Buscando reloj...</div>
-                        <small>Seguridad óptica verificada</small>
+                        <span class="dash-label" data-i18n="dash.card_wrist">Wrist Detection</span>
+                        <div id="dash-wrist-status" class="dash-val" data-i18n="dash.searching_watch">Searching for watch...</div>
+                        <small data-i18n="dash.desc_optical">Optical security verified</small>
                     </div>
                     <div class="dash-card">
-                        <span class="dash-label">Sensibilidad de Bloqueo</span>
+                        <span class="dash-label" data-i18n="dash.card_lock_sens">Lock Sensitivity</span>
                         <div id="dash-lock-val" class="dash-val">-74 dBm</div>
-                        <small>Al alejarte a ~2.5 metros</small>
+                        <small data-i18n="dash.desc_lock_dist">When walking away ~2.5m</small>
                     </div>
                     <div class="dash-card">
-                        <span class="dash-label">Sensibilidad de Desbloqueo</span>
+                        <span class="dash-label" data-i18n="dash.card_unlock_sens">Unlock Sensitivity</span>
                         <div id="dash-unlock-val" class="dash-val">-58 dBm</div>
-                        <small>Al sentarte en el escritorio (~1 m)</small>
+                        <small data-i18n="dash.desc_unlock_dist">When sitting at desk (~1m)</small>
                     </div>
                 </div>
 
                 <!-- Security Options & Switches Card -->
                 <div class="card settings-card">
-                    <h3 style="font-size: 14.5px; font-weight: 600; margin-bottom: 10px;">Opciones de Seguridad y Comportamiento</h3>
+                    <h3 style="font-size: 14.5px; font-weight: 600; margin-bottom: 10px;" data-i18n="dash.heading_options">Security & Behavior Options</h3>
                     <div class="switch-row">
                         <div>
-                            <strong>Bloquear equipo automáticamente al alejarte</strong>
-                            <div style="font-size: 12px; color: var(--text-secondary);">Bloquea Windows cuando sales del escritorio o de la habitación.</div>
+                            <strong data-i18n="dash.opt_lock_title">Automatically lock PC when walking away</strong>
+                            <div style="font-size: 12px; color: var(--text-secondary);" data-i18n="dash.opt_lock_desc">Locks Windows when leaving your desk or room.</div>
                         </div>
                         <input type="checkbox" id="chk-auto-lock" checked class="fluent-switch">
                     </div>
                     <div class="switch-row">
                         <div>
-                            <strong>Desbloquear automáticamente al acercarte</strong>
-                            <div style="font-size: 12px; color: var(--text-secondary);">Despierta la pantalla y desbloquea con tus credenciales cifradas al sentarte.</div>
+                            <strong data-i18n="dash.opt_unlock_title">Automatically unlock when approaching</strong>
+                            <div style="font-size: 12px; color: var(--text-secondary);" data-i18n="dash.opt_unlock_desc">Wakes display and unlocks using encrypted credentials when you sit down.</div>
                         </div>
                         <input type="checkbox" id="chk-auto-unlock" checked class="fluent-switch">
                     </div>
                     <div class="switch-row">
                         <div>
-                            <strong>Exigir reloj colocado en la muñeca</strong>
-                            <div style="font-size: 12px; color: var(--text-secondary);">Bloquea inmediatamente si te quitas el reloj o si queda con código bloqueado.</div>
+                            <strong data-i18n="dash.opt_wrist_title">Require watch worn on wrist</strong>
+                            <div style="font-size: 12px; color: var(--text-secondary);" data-i18n="dash.opt_wrist_desc">Locks immediately if watch is removed from wrist or locked with passcode.</div>
                         </div>
                         <input type="checkbox" id="chk-require-wrist" checked class="fluent-switch">
                     </div>
                     <div class="switch-row" style="border-bottom: none;">
                         <div>
-                            <strong>Iniciar WristKey automáticamente con Windows</strong>
-                            <div style="font-size: 12px; color: var(--text-secondary);">Protección activa desde que enciendes o reinicias tu ordenador.</div>
+                            <strong data-i18n="dash.opt_autostart_title">Start WristKey automatically with Windows</strong>
+                            <div style="font-size: 12px; color: var(--text-secondary);" data-i18n="dash.opt_autostart_desc">Active protection from computer startup or reboot.</div>
                         </div>
                         <input type="checkbox" id="chk-autostart" class="fluent-switch">
                     </div>
@@ -313,14 +327,15 @@
 
                 <!-- Quick Action Buttons -->
                 <div style="display: flex; gap: 12px; margin-top: 6px; margin-bottom: 12px;">
-                    <button id="btn-dash-lock-now" class="btn btn-secondary" style="flex: 1;">🔒 Probar Bloqueo (user32)</button>
-                    <button id="btn-dash-calibrate" class="btn btn-secondary" style="flex: 1;">⚡ Calibrar Umbrales</button>
-                    <button id="btn-dash-rescan" class="btn btn-secondary" style="flex: 1;">🔄 Buscar otro reloj</button>
+                    <button id="btn-dash-lock-now" class="btn btn-secondary" style="flex: 1;" data-i18n="dash.btn_lock_now">🔒 Test Lock (user32)</button>
+                    <button id="btn-dash-calibrate" class="btn btn-secondary" style="flex: 1;" data-i18n="dash.btn_calibrate">⚡ Calibrate Thresholds</button>
+                    <button id="btn-dash-rescan" class="btn btn-secondary" style="flex: 1;" data-i18n="dash.btn_rescan">🔄 Search Another Watch</button>
                 </div>
             </section>
         </main>
     </div>
 
+    <script src="i18n.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

@@ -20,8 +20,7 @@
 
 <p align="center">
   🌐 <strong>Langues / Languages:</strong><br>
-  <a href="../../README.md">Español</a> | 
-  <a href="README.en.md">English</a> | 
+  <a href="../../README.md">English (Main)</a> | <a href="README.es.md">Español</a> | 
   <strong>Français</strong> | 
   <a href="README.pt.md">Português</a> | 
   <a href="README.de.md">Deutsch</a> | 
@@ -65,7 +64,7 @@ Tout comme la fonction native **Auto Unlock sur macOS** et **`watch-unlock-rs` s
 ## 📥 Installation
 
 Téléchargez l'installateur officiel depuis la section **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)** :
-* 📦 **[WristKey_0.4.18_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.18/WristKey_0.4.18_x64-setup.exe)**
+* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
 
 Lancez le fichier `.exe` pour installer WristKey avec son raccourci bureau et son service en arrière-plan.
 

@@ -20,8 +20,7 @@
 
 <p align="center">
   🌐 <strong>Sprachen / Languages:</strong><br>
-  <a href="../../README.md">Español</a> | 
-  <a href="README.en.md">English</a> | 
+  <a href="../../README.md">English (Main)</a> | <a href="README.es.md">Español</a> | 
   <a href="README.fr.md">Français</a> | 
   <a href="README.pt.md">Português</a> | 
   <strong>Deutsch</strong> | 
@@ -58,7 +57,7 @@ Windows bietet die Funktion *Dynamische Sperre* (Dynamic Lock), die jedoch im Al
 ## 📥 Installation
 
 Laden Sie das offizielle Installationsprogramm von der **[GitHub Releases](https://github.com/jorjanion/WristKey/releases)**-Seite herunter:
-* 📦 **[WristKey_0.4.18_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.18/WristKey_0.4.18_x64-setup.exe)**
+* 📦 **[WristKey_0.4.19_x64-setup.exe](https://github.com/jorjanion/WristKey/releases/download/v0.4.19/WristKey_0.4.19_x64-setup.exe)**
 
 ---
 

@@ -782,3 +782,55 @@ body {
     padding-bottom: 8px;
     border-top: 1px solid var(--border-subtle);
 }
+
+
+/* Language Picker */
+.sidebar-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.lang-selector-container {
+    width: 100%;
+}
+
+.lang-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.lang-select {
+    width: 100%;
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 7px 10px;
+    font-size: 12.5px;
+    font-family: var(--font);
+    cursor: pointer;
+    outline: none;
+    transition: all 0.15s ease;
+}
+
+.lang-select:hover {
+    border-color: var(--border-strong);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.lang-select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.lang-select option {
+    background-color: #202020;
+    color: #ffffff;
+    padding: 6px 10px;
+}

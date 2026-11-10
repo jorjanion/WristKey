@@ -1,9 +1,9 @@
-# Guía de Contribución / Contributing Guide
+# Contributing to WristKey
 
 <p align="right">
-  🌐 <strong>Idiomas:</strong> 
-  <strong>Español (Principal)</strong> | 
-  <a href="docs/translations/CONTRIBUTING.en.md">English</a> | 
+  🌐 <strong>Languages:</strong> 
+  <strong>English (Main)</strong> | 
+  <a href="docs/translations/CONTRIBUTING.es.md">Español</a> | 
   <a href="docs/translations/CONTRIBUTING.fr.md">Français</a> | 
   <a href="docs/translations/CONTRIBUTING.pt.md">Português</a> | 
   <a href="docs/translations/CONTRIBUTING.de.md">Deutsch</a> | 
@@ -13,87 +13,87 @@
   <a href="docs/translations/CONTRIBUTING.ja.md">日本語</a>
 </p>
 
-¡Gracias por tu interés en mejorar **WristKey**!  
-WristKey es un proyecto open-source y damos la bienvenida a contribuciones de la comunidad, tanto reportes de errores como sugerencias y Pull Requests.
+Thank you for your interest in improving **WristKey**!  
+WristKey is an open-source project and we warmly welcome contributions from the community, whether through bug reports, architectural ideas, or code Pull Requests.
 
 ---
 
-## 🐛 Reportar un Error / Reporting a Bug
+## 🐛 Reporting a Bug
 
-Antes de abrir un issue, revisa la lista de [Issues existentes](https://github.com/jorjanion/WristKey/issues) para verificar si el problema ya ha sido reportado o resuelto en versiones anteriores.
+Before submitting a new issue, please review existing [GitHub Issues](https://github.com/jorjanion/WristKey/issues) to ensure the behavior hasn't already been addressed in a recent release.
 
-Al crear un nuevo issue, incluye la mayor cantidad de contexto técnico posible:
+When opening an issue, provide as much technical context as possible:
 
-1. **Hardware y Software:**
-   - **Modelo de Apple Watch:** (ej. Apple Watch SE, Series 8, Ultra 2).
-   - **Versión de watchOS:** (ej. watchOS 10.6.2, 11.1).
-   - **Versión de Windows:** (ej. Windows 11 23H2 / 24H2, Windows 10 22H2).
-   - **Adaptador Bluetooth del PC:** (ej. Intel Wi-Fi 6E AX210 integrado, dongle USB Realtek, etc.).
-   - **Versión de WristKey:** (ej. v0.4.18).
+1. **Hardware & Environment:**
+   - **Apple Watch Model:** (e.g. Apple Watch SE, Series 9, Ultra 2).
+   - **watchOS Version:** (e.g. watchOS 10.6.2, 11.1).
+   - **Windows Version:** (e.g. Windows 11 23H2 / 24H2, Windows 10 22H2).
+   - **Bluetooth Adapter:** (e.g. Intel AX210, Realtek USB dongle, etc.).
+   - **WristKey Version:** (e.g. v0.4.19).
 
-2. **Diagnóstico y Telemetría RF (Muy recomendado):**
-   Si el problema está relacionado con la detección de proximidad, el escáner o el bloqueo/desbloqueo, puedes capturar la telemetría en vivo ejecutando en una terminal:
+2. **Diagnostics & Continuity Telemetry (Highly Recommended):**
+   If reporting proximity tracking, packet scanning, or auto-lock/unlock issues, capture live telemetry in your terminal:
    ```powershell
    cargo run -p wristkey-cli -- --telemetry
    ```
-   Copia unas pocas líneas relevantes del paquete emitido por tu reloj (por ejemplo: `Raw bytes: [10, 07, 3B, ...]`, RSSI en dBm) para que podamos depurar exactamente los flags de Continuity de tu dispositivo.
+   Paste a few relevant lines (e.g., `Raw bytes: [10, 07, 3B, ...]`, RSSI in dBm) so we can inspect your watch's exact Continuity flags.
 
-3. **Comportamiento esperado vs Comportamiento real:**
-   Explica qué esperabas que ocurriera y qué ocurrió exactamente (ej. "Al alejarme más de 3 metros, el medidor bajó a -82 dBm pero la pantalla no se bloqueó").
-
----
-
-## 💡 Sugerir una Mejora / Feature Requests
-
-Si tienes una idea para mejorar WristKey:
-1. Abre un issue utilizando la plantilla de **Feature Request**.
-2. Explica claramente el caso de uso y el beneficio para los usuarios.
-3. Si es factible y aporta valor, la priorizaremos para las siguientes versiones.
+3. **Observed vs Expected Behavior:**
+   Explain what actually happened versus what you expected to happen.
 
 ---
 
-## 🛠️ Desarrollo Local y Pull Requests
+## 💡 Proposing Enhancements (Feature Requests)
 
-### Requisitos Previos
-* **Windows 10 / 11** con soporte Bluetooth LE.
+Have an idea to improve WristKey?
+1. Open an issue using the **Feature Request** template.
+2. Detail the motivation, workflow, and how it impacts end users.
+3. If aligned with project architecture, we'll discuss implementation and milestones.
+
+---
+
+## 🛠️ Local Development & Pull Requests
+
+### Prerequisites
+* **Windows 10 / 11** with Bluetooth LE support.
 * **Rust 2021+** (`rustup update`).
-* **Node.js (v18+) y npm** (para la interfaz Tauri Fluent UI).
+* **Node.js (v18+) and npm** (for the Tauri Fluent UI).
 
-### Pasos para Desarrollar
+### Development Workflow
 
-1. **Haz un Fork y clona tu repositorio:**
+1. **Fork and clone the repository:**
    ```powershell
-   git clone https://github.com/<tu-usuario>/WristKey.git
+   git clone https://github.com/<your-username>/WristKey.git
    cd WristKey
    ```
 
-2. **Crea una rama para tu feature o fix:**
+2. **Create a topic branch:**
    ```powershell
-   git checkout -b feature/nombre-de-tu-mejora
-   # o
-   git checkout -b fix/descripcion-del-bug
+   git checkout -b feature/your-feature-name
+   # or
+   git checkout -b fix/your-fix-name
    ```
 
-3. **Ejecuta los tests unitarios:**
-   Todos los cambios deben pasar la suite de pruebas del espacio de trabajo:
+3. **Run the workspace test suite:**
+   All changes must pass existing unit, integration, and cryptographic tests:
    ```powershell
    cargo test --workspace
    ```
 
-4. **Verifica el formato del código:**
+4. **Verify formatting & linting:**
    ```powershell
    cargo fmt --check
    cargo clippy --workspace -- -D warnings
    ```
 
-5. **Prueba la interfaz en modo desarrollo:**
+5. **Test the frontend in development mode:**
    ```powershell
    npm --prefix crates/wristkey-ui run tauri dev
    ```
 
-6. **Envía tu Pull Request:**
-   - Asegúrate de describir claramente qué problema resuelve o qué función añade.
-   - Si tu PR resuelve un issue abierto, añade `Closes #123` en la descripción.
-   - Un mantenedor revisará los cambios y ejecutará la integración continua (CI) en GitHub Actions antes de fusionar.
+6. **Submit your Pull Request:**
+   - Provide a concise summary of the changes made.
+   - Reference any relevant issues (e.g., `Closes #123`).
+   - Automated CI tests will validate your changes before merge.
 
-¡Gracias por apoyar el ecosistema open-source de WristKey!
+Thank you for helping build a safer, faster desktop experience with WristKey!
