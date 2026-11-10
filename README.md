@@ -63,7 +63,11 @@ Ejecuta el archivo `.exe` para instalar WristKey en tu equipo con su acceso dire
 Al ejecutar el instalador por primera vez en Windows 11 o 10, es posible que veas la pantalla azul de aviso de **Microsoft Defender SmartScreen** (*"Windows protegió su PC"*):
 
 <div align="center">
-  <img src="assets/smartscreen_guide.png" alt="Guía de instalación con Windows Defender SmartScreen" width="760" style="border-radius: 12px; margin: 12px 0;" />
+
+| **Paso 1:** Haz clic en **"Más información"** | **Paso 2:** Pulsa en **"Ejecutar de todas formas"** |
+| :---: | :---: |
+| <img src="assets/smartscreen_step1.png" width="360" alt="Paso 1: Más información" style="border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" /> | <img src="assets/smartscreen_step2.png" width="360" alt="Paso 2: Ejecutar de todas formas" style="border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" /> |
+
 </div>
 
 #### ¿Por qué ocurre esto?
@@ -76,8 +80,8 @@ Al ejecutar el instalador por primera vez en Windows 11 o 10, es posible que vea
    - No contiene telemetría de terceros ni conexiones a servidores externos.
 
 #### ¿Cómo continuar con la instalación?
-1. Haz clic en el enlace azul **"Más información"** (*"More info"*).
-2. Pulsa en el botón **"Ejecutar de todas formas"** (*"Run anyway"*).
+1. En la primera pantalla, haz clic en el enlace subrayado **"Más información"** (*"More info"*).
+2. Aparecerá el botón adicional en la parte inferior izquierda; pulsa en **"Ejecutar de todas formas"** (*"Run anyway"*).
 
 ---
 
