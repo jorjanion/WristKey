@@ -241,6 +241,10 @@ function goToStep(step) {
 
     if (targetStep) targetStep.classList.add("active");
     if (targetNav) targetNav.classList.add("active");
+
+    if (step === 3 && typeof loadVaultCredentials === "function") {
+        loadVaultCredentials();
+    }
 }
 
 // Step 1: Scanner & Discovery
@@ -424,34 +428,91 @@ function updateThresholdMarkers() {
     if (lblUnlockZone) lblUnlockZone.innerHTML = t("dash.unlock_zone", { dbm: `<span id="dash-lbl-unlock-thresh">${unlockThreshold}</span>` });
 }
 
-// Step 3: Vault Handlers (DPAPI Credential Storage)
+// Step 3: Vault Handlers (DPAPI Credential Storage & Persistence)
+let vaultCredentialsLoaded = false;
+
+async function loadVaultCredentials() {
+    const domainInput = document.getElementById("vault-domain");
+    const usernameInput = document.getElementById("vault-username");
+    const passwordInput = document.getElementById("vault-password");
+    const vaultFeedback = document.getElementById("vault-feedback");
+
+    // 1. Try loading existing saved credentials from the DPAPI vault
+    try {
+        const creds = await invoke("test_vault");
+        if (creds && creds.username) {
+            if (domainInput) domainInput.value = creds.domain || ".";
+            if (usernameInput) usernameInput.value = creds.username;
+            if (passwordInput && creds.password) passwordInput.value = creds.password;
+            if (vaultFeedback && !vaultFeedback.textContent) {
+                vaultFeedback.innerHTML = `<span style="color: var(--success); font-size: 12.5px;">${t("step3.succ_loaded")}</span>`;
+            }
+            vaultCredentialsLoaded = true;
+        }
+    } catch (_) {}
+
+    // 2. Query system user information (local account + linked Microsoft Account if present)
+    try {
+        const info = await invoke("get_system_user");
+        const chipsContainer = document.getElementById("vault-account-chips");
+
+        if (chipsContainer) {
+            chipsContainer.innerHTML = "";
+
+            // Chip: Local Account
+            if (info && info.username) {
+                const localChip = document.createElement("button");
+                localChip.type = "button";
+                localChip.className = "btn btn-secondary btn-sm";
+                localChip.style.fontSize = "11.5px";
+                localChip.style.padding = "4px 10px";
+                localChip.style.borderRadius = "14px";
+                localChip.innerHTML = `💻 ${t("step3.chip_local", { user: info.username })}`;
+                localChip.addEventListener("click", () => {
+                    if (domainInput) domainInput.value = ".";
+                    if (usernameInput) usernameInput.value = info.username;
+                });
+                chipsContainer.appendChild(localChip);
+            }
+
+            // Chip: Microsoft Account (if detected)
+            if (info && info.msa_email) {
+                const msaChip = document.createElement("button");
+                msaChip.type = "button";
+                msaChip.className = "btn btn-secondary btn-sm";
+                msaChip.style.fontSize = "11.5px";
+                msaChip.style.padding = "4px 10px";
+                msaChip.style.borderRadius = "14px";
+                msaChip.innerHTML = `☁️ ${t("step3.chip_msa", { email: info.msa_email })}`;
+                msaChip.addEventListener("click", () => {
+                    if (domainInput) domainInput.value = "MicrosoftAccount";
+                    if (usernameInput) usernameInput.value = info.msa_email;
+                });
+                chipsContainer.appendChild(msaChip);
+            }
+        }
+
+        // If no credentials were saved in vault yet, prefill with detected account
+        if (!vaultCredentialsLoaded && info) {
+            if (info.msa_email) {
+                if (domainInput && !domainInput.value) domainInput.value = "MicrosoftAccount";
+                if (usernameInput && !usernameInput.value) usernameInput.value = info.msa_email;
+            } else {
+                if (domainInput && !domainInput.value) domainInput.value = ".";
+                if (usernameInput && !usernameInput.value) usernameInput.value = info.username;
+            }
+        }
+    } catch (_) {}
+}
+
 function initVaultHandlers() {
     const btnSaveVault = document.getElementById("btn-save-vault");
     const btnTestVault = document.getElementById("btn-test-vault");
     const btnTestLogon = document.getElementById("btn-test-logon");
     const vaultFeedback = document.getElementById("vault-feedback");
 
-    // Detect current system user and domain
-    invoke("get_system_user").then(([sysDomain, sysUser]) => {
-        const userHint = document.getElementById("vault-user-hint");
-        const usernameInput = document.getElementById("vault-username");
-        const domainInput = document.getElementById("vault-domain");
-        if (userHint && sysUser) {
-            userHint.innerHTML = t("step3.user_hint", { sysUser, sysDomain });
-            userHint.style.cursor = "pointer";
-            userHint.title = t("step3.click_to_fill");
-            userHint.addEventListener("click", () => {
-                if (usernameInput) usernameInput.value = sysUser;
-                if (domainInput && sysDomain) domainInput.value = sysDomain;
-            });
-            if (usernameInput && !usernameInput.value) {
-                usernameInput.value = sysUser;
-            }
-            if (domainInput && !domainInput.value) {
-                domainInput.value = sysDomain || ".";
-            }
-        }
-    }).catch(() => {});
+    // Preload credentials on initialization
+    loadVaultCredentials();
 
     if (btnSaveVault) {
         btnSaveVault.addEventListener("click", async () => {
@@ -468,6 +529,7 @@ function initVaultHandlers() {
                 await invoke("save_credentials", { domain, username, password });
                 localStorage.setItem("wristkey_setup_completed", "true");
                 isSetupCompleted = true;
+                vaultCredentialsLoaded = true;
                 vaultFeedback.innerHTML = `<span style="color: var(--success)">${t("step3.succ_saved")}</span>`;
             } catch (err) {
                 vaultFeedback.innerHTML = `<span style="color: var(--danger)">${err}</span>`;
@@ -490,8 +552,10 @@ function initVaultHandlers() {
 
     if (btnTestLogon) {
         btnTestLogon.addEventListener("click", async () => {
-            const domain = document.getElementById("vault-domain").value.trim() || ".";
-            const username = document.getElementById("vault-username").value.trim();
+            const domainInput = document.getElementById("vault-domain");
+            const usernameInput = document.getElementById("vault-username");
+            const domain = domainInput.value.trim() || ".";
+            const username = usernameInput.value.trim();
             const password = document.getElementById("vault-password").value;
 
             if (!username || !password) {
@@ -503,7 +567,9 @@ function initVaultHandlers() {
             try {
                 const res = await invoke("test_windows_logon", { domain, user: username, pass: password });
                 if (res.success) {
-                    vaultFeedback.innerHTML = `<span style="color: var(--success); font-weight: 500;">✓ ${t("step3.succ_logon", { user: username })}</span>`;
+                    vaultFeedback.innerHTML = `<span style="color: var(--success); font-weight: 500;">✓ ${res.message}</span>`;
+                    if (res.suggested_domain && domainInput) domainInput.value = res.suggested_domain;
+                    if (res.suggested_username && usernameInput) usernameInput.value = res.suggested_username;
                 } else {
                     vaultFeedback.innerHTML = `<span style="color: var(--danger)">❌ ${res.message}</span>`;
                 }
