@@ -471,8 +471,8 @@ fn test_windows_logon(domain: String, user: String, pass: String) -> wristkey_co
 }
 
 #[tauri::command]
-fn get_system_user() -> (String, String) {
-    wristkey_core::get_system_username_info()
+fn get_system_user() -> wristkey_core::SystemUserInfo {
+    wristkey_core::get_system_user_info()
 }
 
 #[tauri::command]

@@ -208,12 +208,14 @@
                     <div class="form-group">
                         <label for="vault-username" data-i18n="step3.lbl_user">Windows Username</label>
                         <input type="text" id="vault-username" class="text-input" placeholder="e.g. Jorge" data-i18n-ph="step3.ph_user">
+                        <div id="vault-account-chips" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px;"></div>
                         <small id="vault-user-hint" style="color: var(--text-secondary); display: block; margin-top: 5px; font-size: 12px;"></small>
                     </div>
 
                     <div class="form-group">
-                        <label for="vault-password" data-i18n="step3.lbl_pass">Windows Password or PIN</label>
-                        <input type="password" id="vault-password" class="text-input" placeholder="Enter your regular password" data-i18n-ph="step3.ph_pass">
+                        <label for="vault-password" data-i18n="step3.lbl_pass">Windows Account Password (not Hello PIN)</label>
+                        <input type="password" id="vault-password" class="text-input" placeholder="Enter your regular account password" data-i18n-ph="step3.ph_pass">
+                        <small id="vault-pass-warning" style="color: var(--text-secondary); display: block; margin-top: 5px; font-size: 11.5px;" data-i18n="step3.pin_warning">⚠️ Windows Hello PIN (4-6 digits) is not a password. Windows automated unlock requires your actual account password.</small>
                     </div>
 
                     <div class="vault-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">

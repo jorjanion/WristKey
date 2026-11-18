@@ -226,17 +226,97 @@ impl CredentialVault {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SystemUserInfo {
+    pub domain: String,
+    pub username: String,
+    pub msa_email: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WindowsLogonResult {
     pub success: bool,
     pub error_code: u32,
     pub message: String,
     pub detected_user: String,
+    pub suggested_domain: Option<String>,
+    pub suggested_username: Option<String>,
 }
 
-/// Tests whether the provided credentials can log into Windows via native Win32 LogonUserW.
+/// Reads the primary linked Microsoft Account email from HKCU if present.
+pub fn get_msa_account_email() -> Option<String> {
+    #[cfg(windows)]
+    {
+        use windows::core::{PCWSTR, PWSTR};
+        use windows::Win32::Foundation::WIN32_ERROR;
+        use windows::Win32::System::Registry::*;
+
+        const MSA_KEY_PATH: &str = "Software\\Microsoft\\IdentityCRL\\UserExtendedProperties";
+        let subkey_w: Vec<u16> = MSA_KEY_PATH.encode_utf16().chain(std::iter::once(0)).collect();
+
+        let mut h_key = HKEY::default();
+        let open_res = unsafe {
+            RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                PCWSTR(subkey_w.as_ptr()),
+                None,
+                KEY_READ,
+                &mut h_key,
+            )
+        };
+
+        if open_res == WIN32_ERROR(0) {
+            let mut name_buf = [0u16; 256];
+            let mut name_len = name_buf.len() as u32;
+            let enum_res = unsafe {
+                RegEnumKeyExW(
+                    h_key,
+                    0,
+                    Some(PWSTR(name_buf.as_mut_ptr())),
+                    &mut name_len,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            };
+            unsafe {
+                let _ = RegCloseKey(h_key);
+            }
+
+            if enum_res == WIN32_ERROR(0) && name_len > 0 {
+                let email = String::from_utf16_lossy(&name_buf[..name_len as usize]);
+                if email.contains('@') {
+                    return Some(email);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Returns the current Windows user domain, username, and any linked Microsoft Account email.
+pub fn get_system_user_info() -> SystemUserInfo {
+    let domain = std::env::var("USERDOMAIN").unwrap_or_else(|_| ".".to_string());
+    let username = std::env::var("USERNAME").unwrap_or_default();
+    let msa_email = get_msa_account_email();
+    SystemUserInfo {
+        domain,
+        username,
+        msa_email,
+    }
+}
+
+/// Legacy helper for domain and username tuple.
+pub fn get_system_username_info() -> (String, String) {
+    let info = get_system_user_info();
+    (info.domain, info.username)
+}
+
+/// Tests whether the provided credentials can log into Windows via native Win32 LogonUserW,
+/// testing both local and Microsoft Account strategies as needed.
 pub fn validate_windows_logon(domain: &str, user: &str, pass: &str) -> WindowsLogonResult {
-    let (sys_domain, sys_user) = get_system_username_info();
-    let detected_user = format!("{}\\{}", sys_domain, sys_user);
+    let sys_info = get_system_user_info();
+    let detected_user = format!("{}\\{}", sys_info.domain, sys_info.username);
 
     #[cfg(windows)]
     {
@@ -248,40 +328,103 @@ pub fn validate_windows_logon(domain: &str, user: &str, pass: &str) -> WindowsLo
 
         let u_str = user.trim();
         let d_str = domain.trim();
-        let domain_final = if d_str.is_empty() { "." } else { d_str };
+        let pass_trimmed = pass.trim();
 
-        let user_h = HSTRING::from(u_str);
-        let domain_h = HSTRING::from(domain_final);
-        let pass_h = HSTRING::from(pass);
+        let is_likely_pin = !pass_trimmed.is_empty()
+            && pass_trimmed.chars().all(|c| c.is_ascii_digit())
+            && pass_trimmed.len() <= 8;
 
-        let mut token = HANDLE::default();
-        let res = unsafe {
-            LogonUserW(
-                &user_h,
-                &domain_h,
-                &pass_h,
-                LOGON32_LOGON_INTERACTIVE,
-                LOGON32_PROVIDER_DEFAULT,
-                &mut token,
-            )
-        };
+        let try_logon = |u: &str, d: &str| -> windows::core::Result<()> {
+            let user_h = HSTRING::from(u);
+            let domain_final = if d.is_empty() { "." } else { d };
+            let domain_h = HSTRING::from(domain_final);
+            let pass_h = HSTRING::from(pass);
 
-        match res {
-            Ok(_) => {
+            let mut token = HANDLE::default();
+            let res = unsafe {
+                LogonUserW(
+                    &user_h,
+                    &domain_h,
+                    &pass_h,
+                    LOGON32_LOGON_INTERACTIVE,
+                    LOGON32_PROVIDER_DEFAULT,
+                    &mut token,
+                )
+            };
+            if res.is_ok() {
                 unsafe {
                     let _ = CloseHandle(token);
                 }
+            }
+            res
+        };
+
+        // Strategy 1: User's exact entered credentials
+        let mut last_res = try_logon(u_str, d_str);
+        let mut working_domain = d_str.to_string();
+        let mut working_user = u_str.to_string();
+
+        // Strategy 2: If failed and user is an email, try domain "MicrosoftAccount"
+        if last_res.is_err() && u_str.contains('@') && d_str != "MicrosoftAccount" {
+            let res_msa = try_logon(u_str, "MicrosoftAccount");
+            if res_msa.is_ok() {
+                last_res = res_msa;
+                working_domain = "MicrosoftAccount".to_string();
+                working_user = u_str.to_string();
+            }
+        }
+
+        // Strategy 3: If failed and a Microsoft Account email exists in registry, try that email
+        if last_res.is_err() {
+            if let Some(ref msa_email) = sys_info.msa_email {
+                let res_msa = try_logon(msa_email, "MicrosoftAccount");
+                if res_msa.is_ok() {
+                    last_res = res_msa;
+                    working_domain = "MicrosoftAccount".to_string();
+                    working_user = msa_email.clone();
+                }
+            }
+        }
+
+        // Strategy 4: If domain is "." or empty, try with the actual machine domain
+        if last_res.is_err() && (d_str.is_empty() || d_str == ".") {
+            let res_domain = try_logon(u_str, &sys_info.domain);
+            if res_domain.is_ok() {
+                last_res = res_domain;
+                working_domain = sys_info.domain.clone();
+                working_user = u_str.to_string();
+            }
+        }
+
+        match last_res {
+            Ok(_) => {
+                let success_msg = if working_domain == "MicrosoftAccount" {
+                    format!("Autenticación correcta en Windows para cuenta Microsoft '{}'. Desbloqueo verificado.", working_user)
+                } else {
+                    format!("Autenticación correcta en Windows para '{}'. Desbloqueo verificado.", working_user)
+                };
+
                 WindowsLogonResult {
                     success: true,
                     error_code: 0,
-                    message: format!("Autenticación correcta en Windows para '{}'. Desbloqueo verificado.", u_str),
+                    message: success_msg,
                     detected_user,
+                    suggested_domain: Some(working_domain),
+                    suggested_username: Some(working_user),
                 }
             }
             Err(e) => {
                 let code = (e.code().0 as u32) & 0xFFFF;
                 let explanation = match code {
-                    1326 => "Error 1326: Usuario o contraseña incorrectos. Si usas cuenta de Microsoft, tu usuario local suele ser el nombre de tu carpeta personal (compruébalo ejecutando 'whoami' en PowerShell).",
+                    1326 => {
+                        if is_likely_pin {
+                            "Error 1326: Has introducido un PIN. El PIN de Windows Hello (4-6 dígitos) es exclusivo de Windows Hello y no es una contraseña. Para el desbloqueo automático debes introducir la contraseña real de tu cuenta."
+                        } else if sys_info.msa_email.is_some() {
+                            "Error 1326: Usuario o contraseña incorrectos. Tu equipo tiene vinculada una cuenta Microsoft. Asegúrate de seleccionar 'Cuenta Microsoft' o introducir la contraseña real de tu correo Microsoft (no el PIN de Windows Hello)."
+                        } else {
+                            "Error 1326: Usuario o contraseña incorrectos. Verifica que el nombre de usuario coincide con tu cuenta de Windows y que has introducido tu contraseña real (no el PIN)."
+                        }
+                    }
                     1327 => "Error 1327: Restricción de cuenta (contraseña en blanco o restricción de horario).",
                     1330 => "Error 1330: La contraseña de la cuenta ha caducado.",
                     1331 => "Error 1331: La cuenta de usuario está deshabilitada.",
@@ -293,6 +436,8 @@ pub fn validate_windows_logon(domain: &str, user: &str, pass: &str) -> WindowsLo
                     error_code: code,
                     message: format!("{} (Código Windows {})", explanation, code),
                     detected_user,
+                    suggested_domain: None,
+                    suggested_username: None,
                 }
             }
         }
@@ -306,15 +451,10 @@ pub fn validate_windows_logon(domain: &str, user: &str, pass: &str) -> WindowsLo
             error_code: 0,
             message: "Simulación no-Windows".to_string(),
             detected_user,
+            suggested_domain: None,
+            suggested_username: None,
         }
     }
-}
-
-/// Returns the current Windows user domain and username from environment.
-pub fn get_system_username_info() -> (String, String) {
-    let domain = std::env::var("USERDOMAIN").unwrap_or_else(|_| ".".to_string());
-    let user = std::env::var("USERNAME").unwrap_or_default();
-    (domain, user)
 }
 
 #[cfg(test)]

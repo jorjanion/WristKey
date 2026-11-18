@@ -13,8 +13,9 @@ pub use continuity::{AppleContinuityFrame, APPLE_COMPANY_ID};
 pub use crypto::{format_mac, CryptoError, IrkResolver};
 pub use device::{WatchPresenceManager, WatchSecurityStatus};
 pub use dpapi::{
-    get_system_username_info, protect_data, unprotect_data, validate_windows_logon,
-    CredentialVault, DpapiError, UserCredentials, WindowsLogonResult,
+    get_msa_account_email, get_system_user_info, get_system_username_info, protect_data,
+    unprotect_data, validate_windows_logon, CredentialVault, DpapiError, SystemUserInfo,
+    UserCredentials, WindowsLogonResult,
 };
 pub use ipc::{send_ipc_request, IpcError, IpcRequest, IpcResponse, IpcServer, WRISTKEY_PIPE_NAME};
 pub use lock::{lock_workstation, LockError};
