@@ -109,7 +109,7 @@ async function checkForUpdates() {
         });
         if (response.ok) {
             const release = await response.json();
-            const currentVersion = "0.5.0";
+            const currentVersion = "0.5.1";
             const tag = release.tag_name || "";
             const latestClean = tag.replace(/^v/, "");
 
